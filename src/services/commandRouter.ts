@@ -27,6 +27,13 @@ export function createCommandRouter(
     if (!command) return;
 
     try {
+      // if bot is AFK and someone issues another command, abandon AFK first
+      try {
+        if (command.name !== 'afk' && services.afk) {
+          services.afk.stopAfk();
+        }
+      } catch (e) {}
+
       await command.execute({
         bot,
         config,

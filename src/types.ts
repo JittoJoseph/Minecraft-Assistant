@@ -66,7 +66,7 @@ export interface FollowService {
 }
 
 export interface AfkService {
-  startAfk: () => Promise<void>;
+  startAfk: (position?: Position3) => Promise<void>;
   stopAfk: () => void;
 }
 
