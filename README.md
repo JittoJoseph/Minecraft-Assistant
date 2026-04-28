@@ -14,7 +14,7 @@ A modular Mineflayer bot for offline-mode servers with:
 
 1. Copy env template:
    - `Copy-Item .env.example .env`
-2. Edit `.env` values as needed.
+2. Edit `.env` values as needed (minimal: BOT_USERNAME, MINECRAFT_AUTH, MINECRAFT_SERVER).
 3. Start bot:
    - `npm start`
 4. Optional production build:
