@@ -1,6 +1,7 @@
 import type { CommandHandler } from "../types";
 import afk from "./afk";
 import autofarm from "./autofarm";
+import autosleep from "./autosleep";
 import come from "./come";
 import farm from "./farm";
 import follow from "./follow";
@@ -18,6 +19,7 @@ const commands: CommandHandler[] = [
   stop,
   farm,
   autofarm,
+  autosleep,
   listitems,
   setspawnpoint,
   sleep,

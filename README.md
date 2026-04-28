@@ -5,6 +5,7 @@ A modular Mineflayer bot for offline-mode servers with:
 - `follow me`, `come`, `afk`, `stop`
 - manual farming (`farm`)
 - continuous farming (`autofarm on` / `autofarm off`)
+- optional automatic night sleeping (`autosleep on` / `autosleep off`)
 - mature crop harvesting for wheat, carrots, potatoes
 - position-based same-crop replanting
 - chest deposit automation with seed reserves
@@ -45,6 +46,8 @@ The env template already includes:
 - `farm`
 - `autofarm on`
 - `autofarm off`
+- `autosleep on`
+- `autosleep off`
 - `help`
 
-`setspawnpoint` saves the bot's own bed location persistently, and `sleep` always uses that saved bed only.
+`setspawnpoint` saves the bot's own bed location persistently. `sleep` and `autosleep` always use that saved bed and then resume the previous activity after wake-up.

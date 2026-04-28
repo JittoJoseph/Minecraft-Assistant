@@ -4,6 +4,7 @@ import type { AppConfig, MovementService, Position3 } from "../types";
 
 const { GoalNear, GoalBlock } = goals;
 const RETRY_DELAY_MS = 250;
+const GOAL_CHANGED_TEXT = "The goal was changed before it could be completed!";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -12,6 +13,11 @@ function wait(ms: number): Promise<void> {
 function isMovementTimeout(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return text.startsWith("movement_timeout_");
+}
+
+function isGoalChanged(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return text.includes(GOAL_CHANGED_TEXT);
 }
 
 function withTimeout<T>(
@@ -42,6 +48,7 @@ export function createMovementService(
   mcData: any,
   config: AppConfig,
 ): MovementService {
+  let stopGeneration = 0;
   const defaultMovements = new Movements(bot);
   defaultMovements.canDig = false;
   if (mcData.blocksByName.farmland) {
@@ -50,11 +57,22 @@ export function createMovementService(
   bot.pathfinder.setMovements(defaultMovements);
 
   async function runGoal(goal: any, timeoutMs: number): Promise<void> {
+    const generationAtStart = stopGeneration;
     try {
       await withTimeout(bot.pathfinder.goto(goal), timeoutMs, () =>
         bot.pathfinder.setGoal(null),
       );
     } catch (error) {
+      if (isGoalChanged(error)) {
+        if (generationAtStart !== stopGeneration) {
+          throw new Error("movement_interrupted");
+        }
+        await wait(RETRY_DELAY_MS);
+        await withTimeout(bot.pathfinder.goto(goal), timeoutMs, () =>
+          bot.pathfinder.setGoal(null),
+        );
+        return;
+      }
       if (!isMovementTimeout(error)) throw error;
       bot.pathfinder.setGoal(null);
       await wait(RETRY_DELAY_MS);
@@ -69,7 +87,10 @@ export function createMovementService(
     range = 1,
     timeoutMs = config.movementTimeoutMs,
   ): Promise<void> {
-    await runGoal(new GoalNear(position.x, position.y, position.z, range), timeoutMs);
+    await runGoal(
+      new GoalNear(position.x, position.y, position.z, range),
+      timeoutMs,
+    );
   }
 
   async function goBlock(
@@ -80,6 +101,7 @@ export function createMovementService(
   }
 
   function stop(): void {
+    stopGeneration += 1;
     bot.pathfinder.setGoal(null);
   }
 

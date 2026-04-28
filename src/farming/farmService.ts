@@ -17,6 +17,14 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function isInterruptedMovementError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return (
+    text === "movement_interrupted" ||
+    text.includes("The goal was changed before it could be completed!")
+  );
+}
+
 export function createFarmService(
   bot: Bot,
   movement: MovementService,
@@ -65,6 +73,10 @@ export function createFarmService(
         config.movementTimeoutMs * 4,
       );
     } catch (error) {
+      if (isInterruptedMovementError(error)) {
+        respawnRecoveryInProgress = false;
+        return;
+      }
       logger.warn(
         "Could not return to farm after respawn.",
         error instanceof Error ? error.message : String(error),
@@ -171,6 +183,12 @@ export function createFarmService(
             harvestedThisCycle += 1;
           }
         } catch (error) {
+          if (interruptRequested && isInterruptedMovementError(error)) {
+            break;
+          }
+          if (isInterruptedMovementError(error)) {
+            continue;
+          }
           logger.warn(
             "Skipping failed farm job.",
             error instanceof Error ? error.message : String(error),
@@ -272,6 +290,10 @@ export function createFarmService(
     return true;
   }
 
+  function isAutoFarmEnabled(): boolean {
+    return autoFarmEnabled;
+  }
+
   function interruptCurrentCycle(): void {
     interruptRequested = true;
     movement.stop();
@@ -355,6 +377,9 @@ export function createFarmService(
     try {
       await movement.goNear(target, 2, config.movementTimeoutMs * 2);
     } catch (error) {
+      if (isInterruptedMovementError(error)) {
+        return;
+      }
       logger.warn(
         "Autofarm patrol move failed.",
         error instanceof Error ? error.message : String(error),
@@ -394,6 +419,7 @@ export function createFarmService(
     runFarmCycle,
     startAutoFarm,
     stopAutoFarm,
+    isAutoFarmEnabled,
     interruptCurrentCycle,
     unloadToChest,
     getStats,

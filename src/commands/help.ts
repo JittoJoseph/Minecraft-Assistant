@@ -4,8 +4,10 @@ const help: CommandHandler = {
   name: "help",
   match: (msg) => msg === "help",
   async execute(ctx) {
-    ctx.bot.chat("Commands: follow me | come | afk | stop | setspawnpoint | sleep | farm | autofarm on/off | unloadinventory | listitems | help");
-  }
+    ctx.bot.chat(
+      "Commands: follow me | come | afk | stop | setspawnpoint | sleep | farm | autofarm on/off | autosleep on/off | unloadinventory | listitems | help",
+    );
+  },
 };
 
 export default help;

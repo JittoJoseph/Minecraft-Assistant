@@ -39,7 +39,7 @@ export interface AppConfig {
 }
 
 export interface AppState {
-  mode: "idle" | "follow" | "afk" | "farming";
+  mode: "idle" | "follow" | "afk" | "farming" | "sleeping";
   followTarget: string | null;
   afkPosition: Position3 | null;
   isFarming: boolean;
@@ -83,9 +83,17 @@ export interface FarmService {
   runFarmCycle: (triggeredBy?: string) => Promise<number>;
   startAutoFarm: () => boolean;
   stopAutoFarm: () => boolean;
+  isAutoFarmEnabled: () => boolean;
   interruptCurrentCycle: () => void;
   unloadToChest: () => Promise<boolean>;
   getStats: () => FarmStats;
+}
+
+export interface SleepService {
+  sleepAtSpawnBed: (triggeredBy?: "manual" | "auto") => Promise<boolean>;
+  setAutoSleepEnabled: (enabled: boolean) => boolean;
+  isAutoSleepEnabled: () => boolean;
+  maybeAutoSleep: () => Promise<void>;
 }
 
 export interface Services {
@@ -93,6 +101,7 @@ export interface Services {
   follow: FollowService;
   afk: AfkService;
   farm: FarmService;
+  sleep: SleepService;
 }
 
 export interface CommandContext {

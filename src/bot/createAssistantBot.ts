@@ -10,6 +10,7 @@ import { createAfkService } from "../services/afkService";
 import { createCommandRouter } from "../services/commandRouter";
 import { createFollowService } from "../services/followService";
 import { createMovementService } from "../services/movement";
+import { createSleepService } from "../services/sleepService";
 import type { AppState } from "../types";
 import logger from "../utils/logger";
 
@@ -57,7 +58,9 @@ export function createAssistantBot(): void {
       config.reconnectMaxDelayMs,
     );
     const reasonText = lastKickWasSpam ? " (spam cooldown)" : "";
-    logger.warn(`Reconnecting in ${delay}ms${reasonText} (attempt ${reconnectAttempt}).`);
+    logger.warn(
+      `Reconnecting in ${delay}ms${reasonText} (attempt ${reconnectAttempt}).`,
+    );
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
       lastKickWasSpam = false;
@@ -90,7 +93,17 @@ export function createAssistantBot(): void {
       const follow = createFollowService(bot, movement, config, logger, state);
       const afk = createAfkService(bot, movement, config, state);
       const farm = createFarmService(bot, movement, config, logger, state);
-      const services = { movement, follow, afk, farm };
+      const sleep = createSleepService(
+        bot,
+        config,
+        logger,
+        state,
+        movement,
+        follow,
+        afk,
+        farm,
+      );
+      const services = { movement, follow, afk, farm, sleep };
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
       let previousHealth = bot.health;
@@ -103,10 +116,13 @@ export function createAssistantBot(): void {
           clearTimeout(followResumeTimer);
           followResumeTimer = null;
         }
-        logger.warn(`Damage detected (${reason}). Letting native knockback resolve.`);
+        logger.warn(
+          `Damage detected (${reason}). Letting native knockback resolve.`,
+        );
         followResumeTimer = setTimeout(() => {
           followResumeTimer = null;
-          if (state.mode !== "follow" || state.followTarget !== followTarget) return;
+          if (state.mode !== "follow" || state.followTarget !== followTarget)
+            return;
           const player = bot.players[followTarget];
           if (!player?.entity) return;
           try {
@@ -165,7 +181,9 @@ export function createAssistantBot(): void {
         } else if (typeof autoEat.enable === "function") {
           autoEat.enable();
         } else {
-          logger.warn("Auto-eat plugin loaded, but no enable method was found.");
+          logger.warn(
+            "Auto-eat plugin loaded, but no enable method was found.",
+          );
         }
       }
 
@@ -173,6 +191,15 @@ export function createAssistantBot(): void {
         commandRouter.handleChat(username, message).catch((error: unknown) => {
           const text = error instanceof Error ? error.message : String(error);
           logger.error("Chat handler error", text);
+        });
+      });
+
+      bot.on("time", () => {
+        sleep.maybeAutoSleep().catch((error: unknown) => {
+          logger.warn(
+            "Autosleep tick failed.",
+            error instanceof Error ? error.message : String(error),
+          );
         });
       });
 
@@ -221,7 +248,8 @@ export function createAssistantBot(): void {
     });
 
     bot.on("kicked", (reason) => {
-      const serialized = typeof reason === "string" ? reason : JSON.stringify(reason);
+      const serialized =
+        typeof reason === "string" ? reason : JSON.stringify(reason);
       lastKickWasSpam = serialized.includes("disconnect.spam");
       logger.warn("Kicked from server.", reason);
     });

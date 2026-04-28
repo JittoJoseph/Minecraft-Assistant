@@ -36,7 +36,11 @@ export function createCommandRouter(
 
     try {
       // if bot is AFK and someone issues another command, abandon AFK first
-      if (command.name !== "afk") {
+      if (
+        command.name !== "afk" &&
+        command.name !== "sleep" &&
+        command.name !== "autosleep"
+      ) {
         services.afk.stopAfk();
       }
 

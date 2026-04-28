@@ -3,6 +3,14 @@ import { Vec3 } from "vec3";
 import type { AppConfig, Logger, MovementService } from "../types";
 import { DEPOSITABLE_CROP_ITEMS } from "./constants";
 
+function isInterruptedMovementError(error: unknown): boolean {
+  const text = error instanceof Error ? error.message : String(error);
+  return (
+    text === "movement_interrupted" ||
+    text.includes("The goal was changed before it could be completed!")
+  );
+}
+
 export function usedInventorySlots(bot: Bot): number {
   const slots = bot.inventory.slots.slice(9, 45);
   return slots.filter(Boolean).length;
@@ -199,8 +207,15 @@ export async function depositToChest(
     }
 
     try {
-      await movement.goNear(chestBlock.position, 2, config.movementTimeoutMs * 2);
+      await movement.goNear(
+        chestBlock.position,
+        2,
+        config.movementTimeoutMs * 2,
+      );
     } catch (error) {
+      if (isInterruptedMovementError(error)) {
+        continue;
+      }
       logger.warn(
         "Could not reach chest for deposit.",
         error instanceof Error ? error.message : String(error),
