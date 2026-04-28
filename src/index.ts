@@ -1,4 +1,5 @@
 import { createAssistantBot } from "./bot/createAssistantBot";
+import { startHealthServer } from "./services/healthServer";
 import logger from "./utils/logger";
 
 process.on("uncaughtException", (error: Error) => {
@@ -10,4 +11,5 @@ process.on("unhandledRejection", (error: unknown) => {
   logger.error("unhandledRejection", text);
 });
 
+startHealthServer();
 createAssistantBot();
