@@ -8,6 +8,7 @@ A modular Mineflayer bot for offline-mode servers with:
 - mature crop harvesting for wheat, carrots, potatoes
 - position-based same-crop replanting
 - chest deposit automation with seed reserves
+- auto-eat support while farming
 - reconnect on disconnect
 
 ## Setup

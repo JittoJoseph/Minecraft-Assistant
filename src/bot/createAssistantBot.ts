@@ -3,6 +3,7 @@ import minecraftData from "minecraft-data";
 import { plugin as collectBlock } from "mineflayer-collectblock";
 import { pathfinder } from "mineflayer-pathfinder";
 import { plugin as toolPlugin } from "mineflayer-tool";
+const autoEatPlugin = require("mineflayer-auto-eat").plugin;
 import config from "../config/env";
 import { createFarmService } from "../farming/farmService";
 import { createAfkService } from "../services/afkService";
@@ -57,6 +58,7 @@ export function createAssistantBot(): void {
     bot.loadPlugin(pathfinder);
     bot.loadPlugin(collectBlock);
     bot.loadPlugin(toolPlugin);
+    bot.loadPlugin(autoEatPlugin);
 
     bot.once("spawn", () => {
       reconnectAttempt = 0;
@@ -71,6 +73,16 @@ export function createAssistantBot(): void {
       const farm = createFarmService(bot, movement, config, logger, state);
       const services = { movement, follow, afk, farm };
       const commandRouter = createCommandRouter(bot, config, logger, services);
+      const anyBot = bot as any;
+
+      if (anyBot.autoEat) {
+        anyBot.autoEat.options = {
+          priority: "saturation",
+          startAt: 14,
+          bannedFood: ["rotten_flesh", "spider_eye", "poisonous_potato", "pufferfish"],
+        };
+        anyBot.autoEat.enable();
+      }
 
       bot.on("chat", (username, message) => {
         commandRouter.handleChat(username, message).catch((error: unknown) => {

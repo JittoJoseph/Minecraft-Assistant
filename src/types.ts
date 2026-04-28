@@ -21,6 +21,7 @@ export interface AppConfig {
   farmScanRadius: number;
   farmScanMaxBlocks: number;
   farmBatchSize: number;
+  farmCycleMaxMs: number;
   autoFarmIntervalMs: number;
   movementTimeoutMs: number;
   chestPosition: Position3 | null;

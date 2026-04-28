@@ -34,20 +34,45 @@ function findChestBlock(bot: Bot, config: AppConfig): any {
   });
 }
 
+export interface DepositResult {
+  deposited: boolean;
+  reason?: "no_chest" | "open_failed";
+}
+
 export async function depositToChest(
   bot: Bot,
   config: AppConfig,
   movement: MovementService,
   logger: Logger,
-): Promise<void> {
-  const chestBlock = findChestBlock(bot, config);
+): Promise<DepositResult> {
+  let chestBlock = findChestBlock(bot, config);
   if (!chestBlock) {
-    logger.warn("No chest found for deposit.");
-    return;
+    chestBlock = bot.findBlock({
+      matching: (block: any) =>
+        block?.name === "chest" || block?.name === "trapped_chest",
+      maxDistance: Math.max(256, config.chestSearchRadius),
+    });
   }
 
-  await movement.goNear(chestBlock.position, 2);
-  const chest = await bot.openChest(chestBlock);
+  if (!chestBlock) {
+    logger.warn("No chest found for deposit.");
+    return { deposited: false, reason: "no_chest" };
+  }
+
+  await movement.goNear(chestBlock.position, 2, config.movementTimeoutMs * 2);
+
+  let chest: any;
+  try {
+    chest = await bot.openChest(chestBlock);
+  } catch (error) {
+    logger.warn(
+      "Could not open chest for deposit.",
+      error instanceof Error ? error.message : String(error),
+    );
+    return { deposited: false, reason: "open_failed" };
+  }
+
+  let depositedAny = false;
   try {
     for (const item of bot.inventory.items()) {
       if (!shouldDepositItem(item.name)) continue;
@@ -55,9 +80,12 @@ export async function depositToChest(
       const amount = Math.max(0, item.count - keep);
       if (amount > 0) {
         await chest.deposit(item.type, null, amount);
+        depositedAny = true;
       }
     }
   } finally {
     chest.close();
   }
+
+  return { deposited: depositedAny };
 }
