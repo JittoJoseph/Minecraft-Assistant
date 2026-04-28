@@ -37,6 +37,7 @@ The env template already includes:
 - `come`
 - `afk`
 - `stop`
+- `setspawnpoint`
 - `farm`
 - `autofarm on`
 - `autofarm off`
