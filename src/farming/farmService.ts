@@ -26,6 +26,7 @@ export function createFarmService(
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let interruptRequested = false;
+  let lastDepositAt = Date.now();
   const stats: FarmStats = {
     harvested: 0,
     replanted: 0,
@@ -59,14 +60,33 @@ export function createFarmService(
     return true;
   }
 
-  async function maybeDeposit(force = false): Promise<void> {
+  async function maybeDeposit(
+    options: { force?: boolean; keepReserve?: boolean } = {},
+  ): Promise<boolean> {
+    const force = options.force === true;
+    const keepReserve = options.keepReserve !== false;
     const used = usedInventorySlots(bot);
-    if (!force && used < config.inventoryDepositThreshold) return;
-
-    const result = await depositToChest(bot, config, movement, logger);
-    if (!result.deposited && result.reason && used >= 30) {
-      logger.warn("Inventory is getting full but deposit failed.", result.reason);
+    const timedDepositDue =
+      Date.now() - lastDepositAt >= config.inventoryDepositIntervalMs;
+    if (!force && !timedDepositDue && used < config.inventoryDepositThreshold) {
+      return false;
     }
+
+    const result = await depositToChest(bot, config, movement, logger, {
+      keepReserve,
+    });
+    if (result.deposited) {
+      lastDepositAt = Date.now();
+      return true;
+    }
+    if (
+      !result.deposited &&
+      result.reason &&
+      (used >= config.inventoryDepositThreshold || timedDepositDue || force)
+    ) {
+      logger.warn("Scheduled deposit failed.", result.reason);
+    }
+    return false;
   }
 
   async function runFarmCycle(triggeredBy = "manual"): Promise<void> {
@@ -77,50 +97,45 @@ export function createFarmService(
 
     const cycleStartedAt = Date.now();
     let harvestedThisCycle = 0;
-    let scanPasses = 0;
 
     try {
-      while (
-        !interruptRequested &&
-        harvestedThisCycle < config.farmBatchSize &&
-        Date.now() - cycleStartedAt < config.farmCycleMaxMs
-      ) {
-        const jobs = scanMatureCrops(bot, config.farmScanRadius, config.farmScanMaxBlocks);
-        if (!jobs.length) break;
+      const jobs = scanMatureCrops(
+        bot,
+        config.farmScanRadius,
+        config.farmScanMaxBlocks,
+      ).slice(0, config.farmBatchSize);
 
-        let progressed = false;
-        for (const job of jobs) {
-          if (interruptRequested || harvestedThisCycle >= config.farmBatchSize) break;
-
-          try {
-            const harvested = await harvestAndReplant(job);
-            if (harvested) {
-              harvestedThisCycle += 1;
-              progressed = true;
-            }
-          } catch (error) {
-            logger.warn(
-              "Skipping failed farm job.",
-              error instanceof Error ? error.message : String(error),
-            );
-          }
-
-          if (usedInventorySlots(bot) >= config.inventoryDepositThreshold) {
-            await maybeDeposit();
-          }
+      for (const job of jobs) {
+        if (
+          interruptRequested ||
+          harvestedThisCycle >= config.farmBatchSize ||
+          Date.now() - cycleStartedAt >= config.farmCycleMaxMs
+        ) {
+          break;
         }
 
-        scanPasses += 1;
-        if (!progressed) break;
+        try {
+          const harvested = await harvestAndReplant(job);
+          if (harvested) {
+            harvestedThisCycle += 1;
+          }
+        } catch (error) {
+          logger.warn(
+            "Skipping failed farm job.",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+
+        await maybeDeposit();
       }
 
-      // Keep headroom in inventory for continued autofarming.
-      await maybeDeposit(usedInventorySlots(bot) > config.inventoryDepositThreshold - 2);
+      await maybeDeposit();
 
       stats.cycles += 1;
       logger.info(`Farm cycle complete (${triggeredBy}).`, {
         harvestedThisCycle,
-        scanPasses,
+        batchSize: config.farmBatchSize,
+        jobsScanned: jobs.length,
         durationMs: Date.now() - cycleStartedAt,
         stats,
       });
@@ -175,9 +190,28 @@ export function createFarmService(
     movement.stop();
   }
 
+  async function unloadToChest(): Promise<boolean> {
+    const result = await depositToChest(bot, config, movement, logger, {
+      keepReserve: false,
+      includeAllItems: true,
+    });
+    if (result.deposited) {
+      lastDepositAt = Date.now();
+      return true;
+    }
+    return false;
+  }
+
   function getStats(): FarmStats {
     return { ...stats };
   }
 
-  return { runFarmCycle, startAutoFarm, stopAutoFarm, interruptCurrentCycle, getStats };
+  return {
+    runFarmCycle,
+    startAutoFarm,
+    stopAutoFarm,
+    interruptCurrentCycle,
+    unloadToChest,
+    getStats,
+  };
 }

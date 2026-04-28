@@ -27,6 +27,7 @@ export interface AppConfig {
   chestPosition: Position3 | null;
   chestSearchRadius: number;
   inventoryDepositThreshold: number;
+  inventoryDepositIntervalMs: number;
   reserve: Record<string, number>;
   afkPosition: Position3 | null;
   afkJumpIntervalMs: number;
@@ -82,6 +83,7 @@ export interface FarmService {
   startAutoFarm: () => boolean;
   stopAutoFarm: () => boolean;
   interruptCurrentCycle: () => void;
+  unloadToChest: () => Promise<boolean>;
   getStats: () => FarmStats;
 }
 

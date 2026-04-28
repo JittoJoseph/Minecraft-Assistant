@@ -68,10 +68,15 @@ interface DepositPlan {
   remaining: number;
 }
 
-function buildDepositPlan(bot: Bot, config: AppConfig): DepositPlan[] {
+function buildDepositPlan(
+  bot: Bot,
+  config: AppConfig,
+  keepReserve: boolean,
+  includeAllItems: boolean,
+): DepositPlan[] {
   const perItemTotals = new Map<string, DepositPlan>();
   for (const item of bot.inventory.items()) {
-    if (!shouldDepositItem(item.name)) continue;
+    if (!includeAllItems && !shouldDepositItem(item.name)) continue;
 
     const existing = perItemTotals.get(item.name);
     if (existing) {
@@ -89,7 +94,7 @@ function buildDepositPlan(bot: Bot, config: AppConfig): DepositPlan[] {
 
   const plans: DepositPlan[] = [];
   for (const plan of perItemTotals.values()) {
-    const keep = keepCountForItem(config, plan.itemName);
+    const keep = keepReserve ? keepCountForItem(config, plan.itemName) : 0;
     const amountToDeposit = Math.max(0, plan.remaining - keep);
     if (amountToDeposit <= 0) continue;
     plans.push({
@@ -146,13 +151,24 @@ export interface DepositResult {
   reason?: "no_chest" | "open_failed" | "destination_full";
 }
 
+export interface DepositOptions {
+  keepReserve?: boolean;
+  includeAllItems?: boolean;
+}
+
 export async function depositToChest(
   bot: Bot,
   config: AppConfig,
   movement: MovementService,
   logger: Logger,
+  options: DepositOptions = {},
 ): Promise<DepositResult> {
-  const plans = buildDepositPlan(bot, config);
+  const plans = buildDepositPlan(
+    bot,
+    config,
+    options.keepReserve !== false,
+    options.includeAllItems === true,
+  );
   if (!plans.length) {
     return { deposited: false };
   }
