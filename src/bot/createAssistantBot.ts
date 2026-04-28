@@ -26,17 +26,21 @@ export function createAssistantBot(): void {
   const state = createState();
   let reconnectTimer: NodeJS.Timeout | null = null;
   let reconnectAttempt = 0;
+  let lastKickWasSpam = false;
 
   function scheduleReconnect(): void {
     if (reconnectTimer) return;
     reconnectAttempt += 1;
+    const baseDelay = lastKickWasSpam ? 30000 : config.reconnectBaseDelayMs;
     const delay = Math.min(
-      config.reconnectBaseDelayMs * Math.max(1, reconnectAttempt),
+      baseDelay * Math.max(1, reconnectAttempt),
       config.reconnectMaxDelayMs,
     );
-    logger.warn(`Reconnecting in ${delay}ms (attempt ${reconnectAttempt}).`);
+    const reasonText = lastKickWasSpam ? " (spam cooldown)" : "";
+    logger.warn(`Reconnecting in ${delay}ms${reasonText} (attempt ${reconnectAttempt}).`);
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null;
+      lastKickWasSpam = false;
       connect();
     }, delay);
   }
@@ -84,7 +88,11 @@ export function createAssistantBot(): void {
       }
     });
 
-    bot.on("kicked", (reason) => logger.warn("Kicked from server.", reason));
+    bot.on("kicked", (reason) => {
+      const serialized = typeof reason === "string" ? reason : JSON.stringify(reason);
+      lastKickWasSpam = serialized.includes("disconnect.spam");
+      logger.warn("Kicked from server.", reason);
+    });
     bot.on("error", (error) => logger.error("Bot error.", error.message));
     bot.on("end", () => {
       logger.warn("Disconnected from server.");
