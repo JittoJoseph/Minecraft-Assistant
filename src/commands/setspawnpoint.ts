@@ -1,4 +1,5 @@
 import type { CommandHandler } from "../types";
+import { saveSpawnBedPosition } from "../services/spawnPointStore";
 
 function isBed(block: any): boolean {
   return Boolean(block?.name && block.name.endsWith("_bed"));
@@ -40,6 +41,11 @@ const setspawnpoint: CommandHandler = {
     await ctx.services.movement.goNear(bedBlock.position, 1);
     await ctx.bot.lookAt(bedBlock.position.offset(0.5, 0.5, 0.5), true);
     await ctx.bot.activateBlock(bedBlock);
+    await saveSpawnBedPosition({
+      x: bedBlock.position.x,
+      y: bedBlock.position.y,
+      z: bedBlock.position.z,
+    });
     ctx.bot.chat(`Spawn point set at ${ctx.username}'s bed.`);
   },
 };

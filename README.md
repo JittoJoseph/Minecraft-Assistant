@@ -41,7 +41,10 @@ The env template already includes:
 - `afk`
 - `stop`
 - `setspawnpoint`
+- `sleep`
 - `farm`
 - `autofarm on`
 - `autofarm off`
 - `help`
+
+`setspawnpoint` saves the bot's own bed location persistently, and `sleep` always uses that saved bed only.

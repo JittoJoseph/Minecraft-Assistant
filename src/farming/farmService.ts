@@ -25,6 +25,7 @@ export function createFarmService(
 ): FarmService {
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
+  let interruptRequested = false;
   const stats: FarmStats = {
     harvested: 0,
     replanted: 0,
@@ -72,6 +73,7 @@ export function createFarmService(
     if (state.isFarming) return;
     state.isFarming = true;
     state.mode = "farming";
+    interruptRequested = false;
 
     const cycleStartedAt = Date.now();
     let harvestedThisCycle = 0;
@@ -79,6 +81,7 @@ export function createFarmService(
 
     try {
       while (
+        !interruptRequested &&
         harvestedThisCycle < config.farmBatchSize &&
         Date.now() - cycleStartedAt < config.farmCycleMaxMs
       ) {
@@ -87,7 +90,7 @@ export function createFarmService(
 
         let progressed = false;
         for (const job of jobs) {
-          if (harvestedThisCycle >= config.farmBatchSize) break;
+          if (interruptRequested || harvestedThisCycle >= config.farmBatchSize) break;
 
           try {
             const harvested = await harvestAndReplant(job);
@@ -167,9 +170,14 @@ export function createFarmService(
     return true;
   }
 
+  function interruptCurrentCycle(): void {
+    interruptRequested = true;
+    movement.stop();
+  }
+
   function getStats(): FarmStats {
     return { ...stats };
   }
 
-  return { runFarmCycle, startAutoFarm, stopAutoFarm, getStats };
+  return { runFarmCycle, startAutoFarm, stopAutoFarm, interruptCurrentCycle, getStats };
 }

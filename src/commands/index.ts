@@ -6,6 +6,7 @@ import farm from "./farm";
 import follow from "./follow";
 import help from "./help";
 import setspawnpoint from "./setspawnpoint";
+import sleep from "./sleep";
 import stop from "./stop";
 
 const commands: CommandHandler[] = [
@@ -16,6 +17,7 @@ const commands: CommandHandler[] = [
   farm,
   autofarm,
   setspawnpoint,
+  sleep,
   help,
 ];
 

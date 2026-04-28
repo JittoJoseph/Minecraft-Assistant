@@ -81,6 +81,7 @@ export interface FarmService {
   runFarmCycle: (triggeredBy?: string) => Promise<void>;
   startAutoFarm: () => boolean;
   stopAutoFarm: () => boolean;
+  interruptCurrentCycle: () => void;
   getStats: () => FarmStats;
 }
 
