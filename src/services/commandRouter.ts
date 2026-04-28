@@ -20,12 +20,7 @@ export function createCommandRouter(
     if (username === bot.username) return;
     if (!isAuthorized(username)) return;
 
-    const normalized = rawMessage.trim().toLowerCase();
-    const content = config.commandPrefix
-      ? normalized.startsWith(config.commandPrefix)
-        ? normalized.slice(config.commandPrefix.length).trim()
-        : null
-      : normalized;
+    const content = rawMessage.trim().toLowerCase();
 
     if (!content) return;
     const command = commands.find((entry) => entry.match(content));
