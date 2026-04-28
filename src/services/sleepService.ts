@@ -1,6 +1,5 @@
 import { Vec3 } from "vec3";
 import type { Bot } from "mineflayer";
-import { loadSpawnBedPosition } from "./spawnPointStore";
 import type {
   AfkService,
   AppConfig,
@@ -40,7 +39,7 @@ export function createSleepService(
   afk: AfkService,
   farm: FarmService,
 ): SleepService {
-  let autoSleepEnabled = false;
+  let autoSleepEnabled = true;
   let sleepInProgress = false;
   let resumeAfterWake: ActivitySnapshot | null = null;
   let nextAutoSleepAttemptAt = 0;
@@ -107,13 +106,14 @@ export function createSleepService(
     if (sleepInProgress) return false;
     if (triggeredBy === "auto" && !autoSleepEnabled) return false;
     if (triggeredBy === "auto" && !isNight(bot)) return false;
+    if (triggeredBy === "auto" && state.mode === "afk") return false;
 
-    const spawnBed = await loadSpawnBedPosition();
+    const spawnBed = state.spawnBedPosition;
     if (!spawnBed) {
       if (triggeredBy === "manual") {
-        bot.chat("No saved spawn bed. Use setspawnpoint first.");
+        bot.chat("No spawn bed configured. Use setspawnpoint or env SPAWN_BED_X/Y/Z.");
       } else {
-        logger.warn("Autosleep is on, but no saved spawn bed was found.");
+        logger.warn("Autosleep is on, but no spawn bed is configured.");
       }
       return false;
     }
@@ -122,9 +122,9 @@ export function createSleepService(
     const bedBlock = bot.blockAt(bedPos);
     if (!isBedBlock(bedBlock)) {
       if (triggeredBy === "manual") {
-        bot.chat("Saved spawn bed not found. Use setspawnpoint again.");
+        bot.chat("Configured spawn bed not found. Use setspawnpoint again.");
       } else {
-        logger.warn("Autosleep bed not found at saved spawn point.");
+        logger.warn("Autosleep bed not found at configured spawn point.");
       }
       return false;
     }
@@ -178,8 +178,26 @@ export function createSleepService(
     return autoSleepEnabled;
   }
 
+  function setSpawnBedPosition(position: Position3): void {
+    state.spawnBedPosition = {
+      x: Math.floor(position.x),
+      y: Math.floor(position.y),
+      z: Math.floor(position.z),
+    };
+  }
+
+  function getSpawnBedPosition(): Position3 | null {
+    return state.spawnBedPosition ? { ...state.spawnBedPosition } : null;
+  }
+
   async function maybeAutoSleep(): Promise<void> {
-    if (!autoSleepEnabled || sleepInProgress || bot.isSleeping || !isNight(bot))
+    if (
+      !autoSleepEnabled ||
+      sleepInProgress ||
+      bot.isSleeping ||
+      state.mode === "afk" ||
+      !isNight(bot)
+    )
       return;
     if (Date.now() < nextAutoSleepAttemptAt) return;
     const slept = await sleepAtSpawnBed("auto");
@@ -190,6 +208,8 @@ export function createSleepService(
 
   return {
     sleepAtSpawnBed,
+    setSpawnBedPosition,
+    getSpawnBedPosition,
     setAutoSleepEnabled,
     isAutoSleepEnabled,
     maybeAutoSleep,

@@ -31,6 +31,7 @@ export interface AppConfig {
   inventoryDepositIntervalMs: number;
   reserve: Record<string, number>;
   afkPosition: Position3 | null;
+  spawnBedPosition: Position3 | null;
   afkJumpIntervalMs: number;
   reconnectBaseDelayMs: number;
   reconnectMaxDelayMs: number;
@@ -42,6 +43,7 @@ export interface AppState {
   mode: "idle" | "follow" | "afk" | "farming" | "sleeping";
   followTarget: string | null;
   afkPosition: Position3 | null;
+  spawnBedPosition: Position3 | null;
   isFarming: boolean;
   cropMemory: Map<string, CropType>;
 }
@@ -91,6 +93,8 @@ export interface FarmService {
 
 export interface SleepService {
   sleepAtSpawnBed: (triggeredBy?: "manual" | "auto") => Promise<boolean>;
+  setSpawnBedPosition: (position: Position3) => void;
+  getSpawnBedPosition: () => Position3 | null;
   setAutoSleepEnabled: (enabled: boolean) => boolean;
   isAutoSleepEnabled: () => boolean;
   maybeAutoSleep: () => Promise<void>;

@@ -7,10 +7,31 @@ dotenv.config();
 
 const parsedAddress = parseServerAddress(process.env.MINECRAFT_SERVER);
 
+function parseCoordinate(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid ${name}. Expected a number.`);
+  }
+  return Math.floor(value);
+}
+
+const spawnBedX = parseCoordinate("SPAWN_BED_X");
+const spawnBedY = parseCoordinate("SPAWN_BED_Y");
+const spawnBedZ = parseCoordinate("SPAWN_BED_Z");
+const spawnBedPosition =
+  spawnBedX !== null && spawnBedY !== null && spawnBedZ !== null
+    ? { x: spawnBedX, y: spawnBedY, z: spawnBedZ }
+    : null;
+
 const config: AppConfig = {
   appName: process.env.APP_NAME || "Minecraft Assistant",
   inGameLabel: process.env.INGAME_LABEL || "TigerBaby",
-  host: parsedAddress?.host || process.env.MINECRAFT_HOST || "fullcrewserver.aternos.me",
+  host:
+    parsedAddress?.host ||
+    process.env.MINECRAFT_HOST ||
+    "fullcrewserver.aternos.me",
   port: parsedAddress?.port || Number(process.env.MINECRAFT_PORT || 25172),
   username: process.env.BOT_USERNAME || "TigerBaby",
   auth: process.env.MINECRAFT_AUTH || "offline",
@@ -31,6 +52,7 @@ const config: AppConfig = {
   inventoryDepositIntervalMs: 2 * 60 * 1000,
   reserve: { wheat: 64, wheat_seeds: 64, carrot: 64, potato: 64 },
   afkPosition: null,
+  spawnBedPosition,
   afkJumpIntervalMs: 20 * 1000,
   reconnectBaseDelayMs: 5000,
   reconnectMaxDelayMs: 60 * 1000,

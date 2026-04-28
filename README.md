@@ -50,4 +50,8 @@ The env template already includes:
 - `autosleep off`
 - `help`
 
-`setspawnpoint` saves the bot's own bed location persistently. `sleep` and `autosleep` always use that saved bed and then resume the previous activity after wake-up.
+`sleep` and `autosleep` use the current configured spawn bed and resume the previous activity after wake-up.
+
+Spawn bed config options:
+- set defaults in env: `SPAWN_BED_X`, `SPAWN_BED_Y`, `SPAWN_BED_Z`
+- or run `setspawnpoint` while standing on a bed to update the in-memory spawn bed for the current run (the bot also prints exact coordinates for easy env copy)

@@ -11,7 +11,7 @@ import { createCommandRouter } from "../services/commandRouter";
 import { createFollowService } from "../services/followService";
 import { createMovementService } from "../services/movement";
 import { createSleepService } from "../services/sleepService";
-import type { AppState } from "../types";
+import type { AppState, Position3 } from "../types";
 import logger from "../utils/logger";
 
 function resolvePluginFunction(mod: any): ((bot: any) => void) | null {
@@ -33,18 +33,19 @@ function safeLoadPlugin(bot: any, pluginCandidate: any, name: string): void {
   bot.loadPlugin(plugin);
 }
 
-function createState(): AppState {
+function createState(defaultSpawnBed: Position3 | null): AppState {
   return {
     mode: "idle",
     followTarget: null,
     afkPosition: null,
+    spawnBedPosition: defaultSpawnBed,
     isFarming: false,
     cropMemory: new Map(),
   };
 }
 
 export function createAssistantBot(): void {
-  const state = createState();
+  const state = createState(config.spawnBedPosition);
   let reconnectTimer: NodeJS.Timeout | null = null;
   let reconnectAttempt = 0;
   let lastKickWasSpam = false;
