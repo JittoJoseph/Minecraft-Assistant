@@ -3,7 +3,7 @@ import minecraftData from "minecraft-data";
 import { plugin as collectBlock } from "mineflayer-collectblock";
 import { pathfinder } from "mineflayer-pathfinder";
 import { plugin as toolPlugin } from "mineflayer-tool";
-const autoEatPlugin = require("mineflayer-auto-eat").plugin;
+const autoEatModule = require("mineflayer-auto-eat");
 import config from "../config/env";
 import { createFarmService } from "../farming/farmService";
 import { createAfkService } from "../services/afkService";
@@ -12,6 +12,25 @@ import { createFollowService } from "../services/followService";
 import { createMovementService } from "../services/movement";
 import type { AppState } from "../types";
 import logger from "../utils/logger";
+
+function resolvePluginFunction(mod: any): ((bot: any) => void) | null {
+  if (typeof mod === "function") return mod;
+  if (typeof mod?.plugin === "function") return mod.plugin;
+  if (typeof mod?.loader === "function") return mod.loader;
+  if (typeof mod?.default === "function") return mod.default;
+  if (typeof mod?.default?.plugin === "function") return mod.default.plugin;
+  if (typeof mod?.default?.loader === "function") return mod.default.loader;
+  return null;
+}
+
+function safeLoadPlugin(bot: any, pluginCandidate: any, name: string): void {
+  const plugin = resolvePluginFunction(pluginCandidate);
+  if (!plugin) {
+    logger.warn(`Skipping plugin '${name}' because export is not a function.`);
+    return;
+  }
+  bot.loadPlugin(plugin);
+}
 
 function createState(): AppState {
   return {
@@ -55,10 +74,10 @@ export function createAssistantBot(): void {
       version: config.version || undefined,
     });
 
-    bot.loadPlugin(pathfinder);
-    bot.loadPlugin(collectBlock);
-    bot.loadPlugin(toolPlugin);
-    bot.loadPlugin(autoEatPlugin);
+    safeLoadPlugin(bot, pathfinder, "mineflayer-pathfinder");
+    safeLoadPlugin(bot, collectBlock, "mineflayer-collectblock");
+    safeLoadPlugin(bot, toolPlugin, "mineflayer-tool");
+    safeLoadPlugin(bot, autoEatModule, "mineflayer-auto-eat");
 
     bot.once("spawn", () => {
       reconnectAttempt = 0;
