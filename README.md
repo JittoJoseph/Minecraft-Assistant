@@ -19,6 +19,8 @@ A modular Mineflayer bot for offline-mode servers with:
    - `npm start`
 4. Optional production build:
    - `npm run build`
+5. Local TypeScript dev mode:
+   - `npm run dev`
 
 ## Bot identity default
 
