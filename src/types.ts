@@ -80,7 +80,7 @@ export interface FarmStats {
 }
 
 export interface FarmService {
-  runFarmCycle: (triggeredBy?: string) => Promise<void>;
+  runFarmCycle: (triggeredBy?: string) => Promise<number>;
   startAutoFarm: () => boolean;
   stopAutoFarm: () => boolean;
   interruptCurrentCycle: () => void;

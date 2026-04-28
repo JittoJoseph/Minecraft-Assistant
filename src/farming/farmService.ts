@@ -91,8 +91,8 @@ export function createFarmService(
     return false;
   }
 
-  async function runFarmCycle(triggeredBy = "manual"): Promise<void> {
-    if (state.isFarming || unloadInProgress) return;
+  async function runFarmCycle(triggeredBy = "manual"): Promise<number> {
+    if (state.isFarming || unloadInProgress) return 0;
     state.isFarming = true;
     state.mode = "farming";
     interruptRequested = false;
@@ -152,13 +152,14 @@ export function createFarmService(
       state.isFarming = false;
       state.mode = "idle";
     }
+    return harvestedThisCycle;
   }
 
   async function runAutoFarmLoop(): Promise<void> {
     while (autoFarmEnabled) {
-      await runFarmCycle("autofarm");
+      const harvested = await runFarmCycle("autofarm");
       if (!autoFarmEnabled) break;
-      await wait(config.autoFarmIntervalMs);
+      await wait(harvested > 0 ? 750 : config.autoFarmIntervalMs);
     }
   }
 
@@ -196,17 +197,45 @@ export function createFarmService(
 
   function selectLocalSquareBatch(jobs: HarvestJob[]): HarvestJob[] {
     if (!jobs.length) return [];
-    const anchor = jobs[0].position;
     const radius = config.farmBatchSquareRadius;
-    const squareBatch = jobs.filter(
-      (job) =>
-        Math.abs(job.position.x - anchor.x) <= radius &&
-        Math.abs(job.position.z - anchor.z) <= radius,
-    );
-    if (!squareBatch.length) {
-      return jobs.slice(0, config.farmBatchSize);
+    const cellSize = radius * 2 + 1;
+    const groups = new Map<string, HarvestJob[]>();
+
+    for (const job of jobs) {
+      const cellX = Math.floor(job.position.x / cellSize);
+      const cellZ = Math.floor(job.position.z / cellSize);
+      const key = `${cellX},${cellZ}`;
+      const group = groups.get(key);
+      if (group) {
+        group.push(job);
+      } else {
+        groups.set(key, [job]);
+      }
     }
-    return squareBatch.slice(0, config.farmBatchSize);
+
+    const orderedGroups = Array.from(groups.values()).sort((a, b) => {
+      if (b.length !== a.length) return b.length - a.length;
+      const aDistance = bot.entity.position.distanceTo(a[0].position);
+      const bDistance = bot.entity.position.distanceTo(b[0].position);
+      return aDistance - bDistance;
+    });
+
+    const selected: HarvestJob[] = [];
+    for (const group of orderedGroups) {
+      const orderedGroup = group.sort(
+        (a, b) =>
+          bot.entity.position.distanceTo(a.position) -
+          bot.entity.position.distanceTo(b.position),
+      );
+      for (const job of orderedGroup) {
+        selected.push(job);
+        if (selected.length >= config.farmBatchSize) {
+          return selected;
+        }
+      }
+    }
+
+    return selected;
   }
 
   async function unloadToChest(): Promise<boolean> {

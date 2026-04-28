@@ -54,6 +54,17 @@ function collectChestBlocks(bot: Bot, config: AppConfig): any[] {
     addChest(bot.blockAt(pos));
   }
 
+  if (!chests.length) {
+    const extendedChestPositions = bot.findBlocks({
+      matching: (block: any) => isChestBlock(block),
+      maxDistance: Math.max(256, config.chestSearchRadius * 2),
+      count: 64,
+    });
+    for (const pos of extendedChestPositions) {
+      addChest(bot.blockAt(pos));
+    }
+  }
+
   return chests.sort(
     (a, b) =>
       bot.entity.position.distanceTo(a.position) -

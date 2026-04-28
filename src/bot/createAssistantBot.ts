@@ -107,6 +107,8 @@ export function createAssistantBot(): void {
         followResumeTimer = setTimeout(() => {
           followResumeTimer = null;
           if (state.mode !== "follow" || state.followTarget !== followTarget) return;
+          const player = bot.players[followTarget];
+          if (!player?.entity) return;
           try {
             follow.startFollow(followTarget);
           } catch (error) {
@@ -184,6 +186,29 @@ export function createAssistantBot(): void {
           onDamage("health_drop");
         }
         previousHealth = bot.health;
+      });
+
+      bot._client.on("entity_velocity", (packet: any) => {
+        if (!bot.entity || packet.entityId !== bot.entity.id) return;
+        const raw =
+          packet?.velocity &&
+          typeof packet.velocity.x === "number" &&
+          typeof packet.velocity.y === "number" &&
+          typeof packet.velocity.z === "number"
+            ? packet.velocity
+            : {
+                x: packet.velocityX,
+                y: packet.velocityY,
+                z: packet.velocityZ,
+              };
+        if (
+          typeof raw.x !== "number" ||
+          typeof raw.y !== "number" ||
+          typeof raw.z !== "number"
+        ) {
+          return;
+        }
+        bot.entity.velocity.set(raw.x / 8000, raw.y / 8000, raw.z / 8000);
       });
 
       if (config.afkPosition) {
