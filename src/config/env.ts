@@ -23,7 +23,7 @@ const config: AppConfig = {
   farmBatchSize: 64,
   farmBatchSquareRadius: 6,
   farmCycleMaxMs: 4 * 60 * 1000,
-  autoFarmIntervalMs: 45 * 1000,
+  autoFarmIntervalMs: 1500,
   movementTimeoutMs: 20 * 1000,
   chestPosition: null,
   chestSearchRadius: 96,

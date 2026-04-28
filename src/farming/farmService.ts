@@ -25,6 +25,8 @@ export function createFarmService(
 ): FarmService {
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
+  let autoFarmPatrolStep = 0;
+  let autoFarmOrigin: { x: number; y: number; z: number } | null = null;
   let interruptRequested = false;
   let unloadInProgress = false;
   let lastDepositAt = Date.now();
@@ -159,13 +161,22 @@ export function createFarmService(
     while (autoFarmEnabled) {
       const harvested = await runFarmCycle("autofarm");
       if (!autoFarmEnabled) break;
-      await wait(harvested > 0 ? 750 : config.autoFarmIntervalMs);
+      if (harvested === 0) {
+        await moveToNextPatrolPoint();
+      }
+      await wait(harvested > 0 ? 250 : config.autoFarmIntervalMs);
     }
   }
 
   function startAutoFarm(): boolean {
     if (autoFarmEnabled) return false;
     autoFarmEnabled = true;
+    autoFarmPatrolStep = 0;
+    autoFarmOrigin = {
+      x: Math.floor(bot.entity.position.x),
+      y: Math.floor(bot.entity.position.y),
+      z: Math.floor(bot.entity.position.z),
+    };
 
     autoFarmTimer = setTimeout(() => {
       runAutoFarmLoop().catch((error: unknown) => {
@@ -236,6 +247,48 @@ export function createFarmService(
     }
 
     return selected;
+  }
+
+  function getSpiralOffset(step: number): { x: number; z: number } {
+    if (step <= 0) return { x: 0, z: 0 };
+    const k = Math.ceil((Math.sqrt(step + 1) - 1) / 2);
+    let t = 2 * k + 1;
+    let m = t * t;
+    t -= 1;
+
+    if (step >= m - t) return { x: k - (m - step), z: -k };
+    if (step >= m - 2 * t) return { x: -k, z: -k + (m - t - step) };
+    if (step >= m - 3 * t) return { x: -k + (m - 2 * t - step), z: k };
+    return { x: k, z: k - (m - 3 * t - step) };
+  }
+
+  async function moveToNextPatrolPoint(): Promise<void> {
+    if (!autoFarmOrigin) {
+      autoFarmOrigin = {
+        x: Math.floor(bot.entity.position.x),
+        y: Math.floor(bot.entity.position.y),
+        z: Math.floor(bot.entity.position.z),
+      };
+      autoFarmPatrolStep = 0;
+    }
+
+    autoFarmPatrolStep += 1;
+    const offset = getSpiralOffset(autoFarmPatrolStep);
+    const stride = Math.max(8, config.farmBatchSquareRadius * 2 + 2);
+    const target = {
+      x: autoFarmOrigin.x + offset.x * stride,
+      y: autoFarmOrigin.y,
+      z: autoFarmOrigin.z + offset.z * stride,
+    };
+
+    try {
+      await movement.goNear(target, 2, config.movementTimeoutMs * 2);
+    } catch (error) {
+      logger.warn(
+        "Autofarm patrol move failed.",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   async function unloadToChest(): Promise<boolean> {
