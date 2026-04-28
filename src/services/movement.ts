@@ -51,6 +51,8 @@ export function createMovementService(
   let stopGeneration = 0;
   const defaultMovements = new Movements(bot);
   defaultMovements.canDig = false;
+  defaultMovements.allow1by1towers = false;
+  defaultMovements.scafoldingBlocks = [];
   if (mcData.blocksByName.farmland) {
     defaultMovements.blocksToAvoid.add(mcData.blocksByName.farmland.id);
   }

@@ -9,6 +9,7 @@ import type {
   Position3,
 } from "../types";
 import { toPositionKey } from "../utils/position";
+import { DEPOSITABLE_CROP_ITEMS } from "./constants";
 import { replantCrop } from "./replant";
 import { isMatureCrop, scanMatureCrops, type HarvestJob } from "./scanner";
 import { depositToChest, usedInventorySlots } from "./storage";
@@ -25,6 +26,13 @@ function isInterruptedMovementError(error: unknown): boolean {
   );
 }
 
+function getDroppedItemName(entity: any): string | null {
+  if (typeof entity?.getDroppedItem !== "function") return null;
+  const dropped = entity.getDroppedItem();
+  if (!dropped || typeof dropped.name !== "string") return null;
+  return dropped.name;
+}
+
 export function createFarmService(
   bot: Bot,
   movement: MovementService,
@@ -32,15 +40,7 @@ export function createFarmService(
   logger: Logger,
   state: AppState,
 ): FarmService {
-  const collectBlockApi = (bot as Bot & {
-    collectBlock?: {
-      collect?: (
-        target: any,
-        options?: { ignoreNoPath?: boolean },
-      ) => Promise<void>;
-    };
-  }).collectBlock;
-  const dropSweepEveryHarvests = 6;
+  const pickupSweepEveryHarvests = 8;
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let autoFarmPatrolStep = 0;
@@ -135,36 +135,6 @@ export function createFarmService(
     return true;
   }
 
-  async function collectNearbyDrops(): Promise<void> {
-    if (!collectBlockApi?.collect) return;
-    await bot.waitForTicks(3);
-
-    const drops = Object.values(bot.entities)
-      .filter((entity: any) => {
-        if (!entity || entity.name !== "item" || !entity.position) return false;
-        return bot.entity.position.distanceTo(entity.position) <= 8;
-      })
-      .sort(
-        (a: any, b: any) =>
-          bot.entity.position.distanceTo(a.position) -
-          bot.entity.position.distanceTo(b.position),
-      )
-      .slice(0, 10);
-
-    for (const drop of drops) {
-      if (interruptRequested) break;
-      try {
-        await collectBlockApi.collect(drop, { ignoreNoPath: true });
-      } catch (error) {
-        if (isInterruptedMovementError(error)) continue;
-        logger.debug(
-          "Drop collect skipped.",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-    }
-  }
-
   async function maybeDeposit(
     options: { force?: boolean; keepReserve?: boolean } = {},
   ): Promise<boolean> {
@@ -195,6 +165,35 @@ export function createFarmService(
     return false;
   }
 
+  async function walkToNearbyCropDrops(): Promise<void> {
+    const nearbyDrops = Object.values(bot.entities)
+      .filter((entity: any) => {
+        if (!entity || entity.name !== "item" || !entity.position) return false;
+        const itemName = getDroppedItemName(entity);
+        if (!itemName || !DEPOSITABLE_CROP_ITEMS.has(itemName)) return false;
+        return bot.entity.position.distanceTo(entity.position) <= 10;
+      })
+      .sort(
+        (a: any, b: any) =>
+          bot.entity.position.distanceTo(a.position) -
+          bot.entity.position.distanceTo(b.position),
+      )
+      .slice(0, 6);
+
+    for (const drop of nearbyDrops) {
+      if (interruptRequested) break;
+      try {
+        await movement.goNear(drop.position, 1, Math.floor(config.movementTimeoutMs / 2));
+      } catch (error) {
+        if (isInterruptedMovementError(error)) continue;
+        logger.debug(
+          "Drop pickup move skipped.",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
+  }
+
   async function runFarmCycle(triggeredBy = "manual"): Promise<number> {
     if (state.isFarming || unloadInProgress) return 0;
     state.isFarming = true;
@@ -203,7 +202,7 @@ export function createFarmService(
 
     const cycleStartedAt = Date.now();
     let harvestedThisCycle = 0;
-    let harvestedSinceDropSweep = 0;
+    let harvestedSincePickupSweep = 0;
 
     try {
       const scannedJobs = scanMatureCrops(
@@ -226,10 +225,10 @@ export function createFarmService(
           const harvested = await harvestAndReplant(job);
           if (harvested) {
             harvestedThisCycle += 1;
-            harvestedSinceDropSweep += 1;
-            if (harvestedSinceDropSweep >= dropSweepEveryHarvests) {
-              harvestedSinceDropSweep = 0;
-              await collectNearbyDrops();
+            harvestedSincePickupSweep += 1;
+            if (harvestedSincePickupSweep >= pickupSweepEveryHarvests) {
+              harvestedSincePickupSweep = 0;
+              await walkToNearbyCropDrops();
             }
           }
         } catch (error) {
@@ -248,8 +247,8 @@ export function createFarmService(
         await maybeDeposit();
       }
 
-      if (harvestedSinceDropSweep > 0) {
-        await collectNearbyDrops();
+      if (harvestedSincePickupSweep > 0) {
+        await walkToNearbyCropDrops();
       }
       await maybeDeposit();
 
