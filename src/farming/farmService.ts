@@ -32,6 +32,9 @@ export function createFarmService(
   logger: Logger,
   state: AppState,
 ): FarmService {
+  const collectBlockApi = (bot as Bot & {
+    collectBlock?: { collect?: (target: any) => Promise<void> };
+  }).collectBlock;
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let autoFarmPatrolStep = 0;
@@ -102,11 +105,15 @@ export function createFarmService(
     if (!currentBlock || currentBlock.name !== job.blockName) return false;
 
     await movement.goNear(job.position, 1);
-    if (bot.tool?.equipForBlock) {
-      await bot.tool.equipForBlock(currentBlock, {});
+    if (collectBlockApi?.collect) {
+      await collectBlockApi.collect(currentBlock);
+    } else {
+      if (bot.tool?.equipForBlock) {
+        await bot.tool.equipForBlock(currentBlock, {});
+      }
+      await bot.dig(currentBlock, true);
+      await bot.waitForTicks(4);
     }
-    await bot.dig(currentBlock, true);
-    await bot.waitForTicks(4);
     stats.harvested += 1;
 
     const cropType = state.cropMemory.get(key);
