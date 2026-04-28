@@ -10,7 +10,7 @@ import type {
 } from "../types";
 import { toPositionKey } from "../utils/position";
 import { replantCrop } from "./replant";
-import { scanMatureCrops, type HarvestJob } from "./scanner";
+import { isMatureCrop, scanMatureCrops, type HarvestJob } from "./scanner";
 import { depositToChest, usedInventorySlots } from "./storage";
 
 function wait(ms: number): Promise<void> {
@@ -108,13 +108,19 @@ export function createFarmService(
     state.cropMemory.set(key, job.cropType);
 
     const currentBlock = bot.blockAt(job.position);
-    if (!currentBlock || currentBlock.name !== job.blockName) return false;
+    if (!currentBlock || !isMatureCrop(currentBlock) || currentBlock.name !== job.blockName) {
+      return false;
+    }
 
     await movement.goNear(job.position, 1);
-    if (bot.tool?.equipForBlock) {
-      await bot.tool.equipForBlock(currentBlock, {});
+    const targetBlock = bot.blockAt(job.position);
+    if (!targetBlock || !isMatureCrop(targetBlock) || targetBlock.name !== job.blockName) {
+      return false;
     }
-    await bot.dig(currentBlock, true);
+    if (bot.tool?.equipForBlock) {
+      await bot.tool.equipForBlock(targetBlock, {});
+    }
+    await bot.dig(targetBlock, true);
     await bot.waitForTicks(4);
     stats.harvested += 1;
 
