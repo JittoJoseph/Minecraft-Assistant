@@ -6,9 +6,8 @@
   "scripts": {
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
-    "build": "npm install && npm run build:compile --silent",
+    "build": "npm install --include=dev --no-audit --no-fund && tsc -p tsconfig.json",
     "build:compile": "tsc -p tsconfig.json",
-    "postinstall": "npm run build:compile --silent",
     "test": "npm run build:compile --silent && node -e \"console.log('No tests configured')\""
   },
   "keywords": [],
