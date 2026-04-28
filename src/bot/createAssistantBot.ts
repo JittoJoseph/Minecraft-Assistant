@@ -95,12 +95,48 @@ export function createAssistantBot(): void {
       const anyBot = bot as any;
 
       if (anyBot.autoEat) {
-        anyBot.autoEat.options = {
-          priority: "saturation",
-          startAt: 14,
-          bannedFood: ["rotten_flesh", "spider_eye", "poisonous_potato", "pufferfish"],
+        const autoEat = anyBot.autoEat as {
+          setOpts?: (opts: {
+            priority?: string;
+            minHunger?: number;
+            bannedFood?: string[];
+          }) => void;
+          enableAuto?: () => void;
+          enable?: () => void;
+          options?: {
+            priority?: string;
+            startAt?: number;
+            bannedFood?: string[];
+          };
         };
-        anyBot.autoEat.enable();
+        const bannedFood = [
+          "rotten_flesh",
+          "spider_eye",
+          "poisonous_potato",
+          "pufferfish",
+        ];
+
+        if (typeof autoEat.setOpts === "function") {
+          autoEat.setOpts({
+            priority: "saturation",
+            minHunger: 14,
+            bannedFood,
+          });
+        } else if (autoEat.options) {
+          autoEat.options = {
+            priority: "saturation",
+            startAt: 14,
+            bannedFood,
+          };
+        }
+
+        if (typeof autoEat.enableAuto === "function") {
+          autoEat.enableAuto();
+        } else if (typeof autoEat.enable === "function") {
+          autoEat.enable();
+        } else {
+          logger.warn("Auto-eat plugin loaded, but no enable method was found.");
+        }
       }
 
       bot.on("chat", (username, message) => {
