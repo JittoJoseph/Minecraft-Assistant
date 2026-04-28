@@ -21,6 +21,7 @@ const config: AppConfig = {
   farmScanRadius: 96,
   farmScanMaxBlocks: 2048,
   farmBatchSize: 64,
+  farmBatchSquareRadius: 6,
   farmCycleMaxMs: 4 * 60 * 1000,
   autoFarmIntervalMs: 45 * 1000,
   movementTimeoutMs: 20 * 1000,

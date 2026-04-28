@@ -94,50 +94,32 @@ export function createAssistantBot(): void {
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
       let previousHealth = bot.health;
-      let evadeInProgress = false;
-      let lastEvadeAt = 0;
+      let followResumeTimer: NodeJS.Timeout | null = null;
 
-      const evadeDirections: Array<"left" | "right" | "back"> = [
-        "left",
-        "right",
-        "back",
-      ];
-
-      async function triggerEvade(reason: string): Promise<void> {
-        const now = Date.now();
-        if (evadeInProgress || now - lastEvadeAt < 1500) return;
-        lastEvadeAt = now;
-        evadeInProgress = true;
-
-        const direction =
-          evadeDirections[Math.floor(Math.random() * evadeDirections.length)];
-        logger.warn(`Damage detected (${reason}). Evading briefly.`, {
-          direction,
-          mode: state.mode,
-        });
-
-        try {
-          bot.setControlState("sprint", true);
-          bot.setControlState("jump", true);
-          bot.setControlState(direction, true);
-          await bot.waitForTicks(12);
-        } finally {
-          bot.setControlState(direction, false);
-          bot.setControlState("jump", false);
-          bot.setControlState("sprint", false);
-          evadeInProgress = false;
+      function scheduleFollowResume(reason: string): void {
+        if (state.mode !== "follow" || !state.followTarget) return;
+        const followTarget = state.followTarget;
+        if (followResumeTimer) {
+          clearTimeout(followResumeTimer);
+          followResumeTimer = null;
         }
-
-        if (state.mode === "follow" && state.followTarget) {
+        logger.warn(`Damage detected (${reason}). Letting native knockback resolve.`);
+        followResumeTimer = setTimeout(() => {
+          followResumeTimer = null;
+          if (state.mode !== "follow" || state.followTarget !== followTarget) return;
           try {
-            follow.startFollow(state.followTarget);
+            follow.startFollow(followTarget);
           } catch (error) {
             logger.debug(
-              "Could not resume follow immediately after evade.",
+              "Could not resume follow after hit.",
               error instanceof Error ? error.message : String(error),
             );
           }
-        }
+        }, 350);
+      }
+
+      function onDamage(reason: string): void {
+        scheduleFollowResume(reason);
       }
 
       if (anyBot.autoEat) {
@@ -194,22 +176,12 @@ export function createAssistantBot(): void {
 
       bot.on("entityHurt", (entity) => {
         if (entity.id !== bot.entity.id) return;
-        triggerEvade("entityHurt").catch((error: unknown) => {
-          logger.warn(
-            "Evade maneuver failed.",
-            error instanceof Error ? error.message : String(error),
-          );
-        });
+        onDamage("entityHurt");
       });
 
       bot.on("health", () => {
         if (bot.health < previousHealth) {
-          triggerEvade("health_drop").catch((error: unknown) => {
-            logger.warn(
-              "Evade maneuver failed.",
-              error instanceof Error ? error.message : String(error),
-            );
-          });
+          onDamage("health_drop");
         }
         previousHealth = bot.health;
       });

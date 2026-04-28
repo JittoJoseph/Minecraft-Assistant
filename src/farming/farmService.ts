@@ -26,6 +26,7 @@ export function createFarmService(
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let interruptRequested = false;
+  let unloadInProgress = false;
   let lastDepositAt = Date.now();
   const stats: FarmStats = {
     harvested: 0,
@@ -63,6 +64,7 @@ export function createFarmService(
   async function maybeDeposit(
     options: { force?: boolean; keepReserve?: boolean } = {},
   ): Promise<boolean> {
+    if (unloadInProgress) return false;
     const force = options.force === true;
     const keepReserve = options.keepReserve !== false;
     const used = usedInventorySlots(bot);
@@ -90,7 +92,7 @@ export function createFarmService(
   }
 
   async function runFarmCycle(triggeredBy = "manual"): Promise<void> {
-    if (state.isFarming) return;
+    if (state.isFarming || unloadInProgress) return;
     state.isFarming = true;
     state.mode = "farming";
     interruptRequested = false;
@@ -99,11 +101,12 @@ export function createFarmService(
     let harvestedThisCycle = 0;
 
     try {
-      const jobs = scanMatureCrops(
+      const scannedJobs = scanMatureCrops(
         bot,
         config.farmScanRadius,
         config.farmScanMaxBlocks,
-      ).slice(0, config.farmBatchSize);
+      );
+      const jobs = selectLocalSquareBatch(scannedJobs);
 
       for (const job of jobs) {
         if (
@@ -135,7 +138,8 @@ export function createFarmService(
       logger.info(`Farm cycle complete (${triggeredBy}).`, {
         harvestedThisCycle,
         batchSize: config.farmBatchSize,
-        jobsScanned: jobs.length,
+        jobsScanned: scannedJobs.length,
+        jobsSelected: jobs.length,
         durationMs: Date.now() - cycleStartedAt,
         stats,
       });
@@ -190,16 +194,43 @@ export function createFarmService(
     movement.stop();
   }
 
-  async function unloadToChest(): Promise<boolean> {
-    const result = await depositToChest(bot, config, movement, logger, {
-      keepReserve: false,
-      includeAllItems: true,
-    });
-    if (result.deposited) {
-      lastDepositAt = Date.now();
-      return true;
+  function selectLocalSquareBatch(jobs: HarvestJob[]): HarvestJob[] {
+    if (!jobs.length) return [];
+    const anchor = jobs[0].position;
+    const radius = config.farmBatchSquareRadius;
+    const squareBatch = jobs.filter(
+      (job) =>
+        Math.abs(job.position.x - anchor.x) <= radius &&
+        Math.abs(job.position.z - anchor.z) <= radius,
+    );
+    if (!squareBatch.length) {
+      return jobs.slice(0, config.farmBatchSize);
     }
-    return false;
+    return squareBatch.slice(0, config.farmBatchSize);
+  }
+
+  async function unloadToChest(): Promise<boolean> {
+    if (unloadInProgress) return false;
+
+    interruptRequested = true;
+    while (state.isFarming) {
+      await wait(100);
+    }
+
+    unloadInProgress = true;
+    try {
+      const result = await depositToChest(bot, config, movement, logger, {
+        keepReserve: false,
+        includeAllItems: true,
+      });
+      if (result.deposited) {
+        lastDepositAt = Date.now();
+        return true;
+      }
+      return false;
+    } finally {
+      unloadInProgress = false;
+    }
   }
 
   function getStats(): FarmStats {
