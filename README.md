@@ -20,10 +20,9 @@ A modular Mineflayer bot for offline-mode servers with:
 4. Optional production build:
    - `npm run build`
 
-## Important username limitation
+## Bot identity default
 
-Minecraft account usernames cannot contain spaces.  
-So while project branding can be **Minecraft Assistant** and label can be **Tiger Baby**, the actual login username must be valid (default: `Tiger_Baby`).
+Default username and label are set to `TigerBaby`.
 
 ## Default server config
 

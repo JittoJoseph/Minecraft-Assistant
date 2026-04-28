@@ -21,13 +21,13 @@ function toList(value: string | undefined): string[] {
 
 const config: AppConfig = {
   appName: process.env.APP_NAME || "Minecraft Assistant",
-  inGameLabel: process.env.INGAME_LABEL || "Tiger Baby",
+  inGameLabel: process.env.INGAME_LABEL || "TigerBaby",
   host:
     parsedAddress?.host ||
     process.env.MINECRAFT_HOST ||
     "fullcrewserver.aternos.me",
   port: parsedAddress?.port || toNumber(process.env.MINECRAFT_PORT, 25172),
-  username: process.env.BOT_USERNAME || "Tiger_Baby",
+  username: process.env.BOT_USERNAME || "TigerBaby",
   auth: process.env.MINECRAFT_AUTH || "offline",
   version: process.env.MINECRAFT_VERSION || false,
   followDistance: toNumber(process.env.FOLLOW_DISTANCE, 2),
