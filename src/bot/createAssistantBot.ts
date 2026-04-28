@@ -93,6 +93,52 @@ export function createAssistantBot(): void {
       const services = { movement, follow, afk, farm };
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
+      let previousHealth = bot.health;
+      let evadeInProgress = false;
+      let lastEvadeAt = 0;
+
+      const evadeDirections: Array<"left" | "right" | "back"> = [
+        "left",
+        "right",
+        "back",
+      ];
+
+      async function triggerEvade(reason: string): Promise<void> {
+        const now = Date.now();
+        if (evadeInProgress || now - lastEvadeAt < 1500) return;
+        lastEvadeAt = now;
+        evadeInProgress = true;
+
+        const direction =
+          evadeDirections[Math.floor(Math.random() * evadeDirections.length)];
+        logger.warn(`Damage detected (${reason}). Evading briefly.`, {
+          direction,
+          mode: state.mode,
+        });
+
+        try {
+          bot.setControlState("sprint", true);
+          bot.setControlState("jump", true);
+          bot.setControlState(direction, true);
+          await bot.waitForTicks(12);
+        } finally {
+          bot.setControlState(direction, false);
+          bot.setControlState("jump", false);
+          bot.setControlState("sprint", false);
+          evadeInProgress = false;
+        }
+
+        if (state.mode === "follow" && state.followTarget) {
+          try {
+            follow.startFollow(state.followTarget);
+          } catch (error) {
+            logger.debug(
+              "Could not resume follow immediately after evade.",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        }
+      }
 
       if (anyBot.autoEat) {
         const autoEat = anyBot.autoEat as {
@@ -144,6 +190,28 @@ export function createAssistantBot(): void {
           const text = error instanceof Error ? error.message : String(error);
           logger.error("Chat handler error", text);
         });
+      });
+
+      bot.on("entityHurt", (entity) => {
+        if (entity.id !== bot.entity.id) return;
+        triggerEvade("entityHurt").catch((error: unknown) => {
+          logger.warn(
+            "Evade maneuver failed.",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+      });
+
+      bot.on("health", () => {
+        if (bot.health < previousHealth) {
+          triggerEvade("health_drop").catch((error: unknown) => {
+            logger.warn(
+              "Evade maneuver failed.",
+              error instanceof Error ? error.message : String(error),
+            );
+          });
+        }
+        previousHealth = bot.health;
       });
 
       if (config.afkPosition) {

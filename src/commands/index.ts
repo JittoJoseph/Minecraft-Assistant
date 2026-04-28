@@ -8,7 +8,7 @@ import help from "./help";
 import setspawnpoint from "./setspawnpoint";
 import sleep from "./sleep";
 import stop from "./stop";
-import unloadtochest from "./unloadtochest";
+import unloadinventory from "./unloadinventory";
 
 const commands: CommandHandler[] = [
   follow,
@@ -19,7 +19,7 @@ const commands: CommandHandler[] = [
   autofarm,
   setspawnpoint,
   sleep,
-  unloadtochest,
+  unloadinventory,
   help,
 ];
 
