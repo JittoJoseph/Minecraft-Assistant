@@ -6,6 +6,7 @@ import type {
   FarmStats,
   Logger,
   MovementService,
+  Position3,
 } from "../types";
 import { toPositionKey } from "../utils/position";
 import { replantCrop } from "./replant";
@@ -29,12 +30,57 @@ export function createFarmService(
   let autoFarmOrigin: { x: number; y: number; z: number } | null = null;
   let interruptRequested = false;
   let unloadInProgress = false;
+  let pendingRespawnRecovery: {
+    resumePosition: Position3;
+    autoFarmWasEnabled: boolean;
+    wasFarming: boolean;
+  } | null = null;
+  let respawnRecoveryInProgress = false;
   let lastDepositAt = Date.now();
   const stats: FarmStats = {
     harvested: 0,
     replanted: 0,
     cycles: 0,
   };
+
+  function currentBlockPosition(): Position3 {
+    return {
+      x: Math.floor(bot.entity.position.x),
+      y: Math.floor(bot.entity.position.y),
+      z: Math.floor(bot.entity.position.z),
+    };
+  }
+
+  async function recoverFromRespawn(): Promise<void> {
+    if (!pendingRespawnRecovery || respawnRecoveryInProgress) return;
+    const recovery = pendingRespawnRecovery;
+    pendingRespawnRecovery = null;
+    respawnRecoveryInProgress = true;
+
+    try {
+      await wait(250);
+      await movement.goNear(
+        recovery.resumePosition,
+        2,
+        config.movementTimeoutMs * 4,
+      );
+    } catch (error) {
+      logger.warn(
+        "Could not return to farm after respawn.",
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      respawnRecoveryInProgress = false;
+    }
+
+    if (recovery.autoFarmWasEnabled && !autoFarmEnabled) {
+      startAutoFarm();
+      return;
+    }
+    if (recovery.wasFarming && !recovery.autoFarmWasEnabled) {
+      await runFarmCycle("respawn");
+    }
+  }
 
   async function harvestAndReplant(job: HarvestJob): Promise<boolean> {
     const key = toPositionKey(job.position);
@@ -167,6 +213,31 @@ export function createFarmService(
       await wait(harvested > 0 ? 250 : config.autoFarmIntervalMs);
     }
   }
+
+  bot.on("death", () => {
+    const wasFarming = state.mode === "farming" || state.isFarming;
+    if (!autoFarmEnabled && !wasFarming) return;
+
+    pendingRespawnRecovery = {
+      resumePosition: currentBlockPosition(),
+      autoFarmWasEnabled: autoFarmEnabled,
+      wasFarming,
+    };
+    interruptRequested = true;
+    movement.stop();
+  });
+
+  bot.on("spawn", () => {
+    if (!pendingRespawnRecovery) return;
+    setTimeout(() => {
+      recoverFromRespawn().catch((error: unknown) => {
+        logger.error(
+          "Respawn farming recovery failed.",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+    }, 0);
+  });
 
   function startAutoFarm(): boolean {
     if (autoFarmEnabled) return false;
