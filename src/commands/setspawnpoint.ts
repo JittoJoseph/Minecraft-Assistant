@@ -48,9 +48,6 @@ const setspawnpoint: CommandHandler = {
     ctx.bot.chat(
       `Spawn bed set to x=${bedBlock.position.x} y=${bedBlock.position.y} z=${bedBlock.position.z}.`,
     );
-    ctx.bot.chat(
-      `Env: SPAWN_BED_X=${bedBlock.position.x} SPAWN_BED_Y=${bedBlock.position.y} SPAWN_BED_Z=${bedBlock.position.z}`,
-    );
   },
 };
 

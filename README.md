@@ -54,4 +54,4 @@ The env template already includes:
 
 Spawn bed config options:
 - set defaults in env: `SPAWN_BED_X`, `SPAWN_BED_Y`, `SPAWN_BED_Z`
-- or run `setspawnpoint` while standing on a bed to update the in-memory spawn bed for the current run (the bot also prints exact coordinates for easy env copy)
+- or run `setspawnpoint` while standing on a bed to update the in-memory spawn bed for the current run (the bot prints the bed coordinates)
