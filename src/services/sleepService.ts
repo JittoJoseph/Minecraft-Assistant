@@ -11,6 +11,10 @@ import type {
   Position3,
   SleepService,
 } from "../types";
+import {
+  createActivityLifecycle,
+  type ActivitySnapshot,
+} from "./activityLifecycle";
 
 function isBedBlock(block: any): boolean {
   return Boolean(block?.name && block.name.endsWith("_bed"));
@@ -19,14 +23,6 @@ function isBedBlock(block: any): boolean {
 function isNight(bot: Bot): boolean {
   const timeOfDay = bot.time.timeOfDay;
   return timeOfDay >= 12541 && timeOfDay <= 23458;
-}
-
-interface ActivitySnapshot {
-  mode: AppState["mode"];
-  followTarget: string | null;
-  afkPosition: Position3 | null;
-  autoFarmWasEnabled: boolean;
-  wasFarming: boolean;
 }
 
 export function createSleepService(
@@ -43,61 +39,31 @@ export function createSleepService(
   let sleepInProgress = false;
   let resumeAfterWake: ActivitySnapshot | null = null;
   let nextAutoSleepAttemptAt = 0;
-
-  function snapshotActivity(): ActivitySnapshot {
-    return {
-      mode: state.mode,
-      followTarget: state.followTarget,
-      afkPosition: state.afkPosition,
-      autoFarmWasEnabled: farm.isAutoFarmEnabled(),
-      wasFarming: state.isFarming,
-    };
-  }
-
-  function pauseActivity(): void {
-    follow.stopFollow();
-    afk.stopAfk();
-    farm.stopAutoFarm();
-    farm.interruptCurrentCycle();
-    movement.stop();
-  }
-
-  async function resumeActivity(snapshot: ActivitySnapshot): Promise<void> {
-    if (snapshot.autoFarmWasEnabled) {
-      farm.startAutoFarm();
-      return;
-    }
-    if (snapshot.mode === "farming" || snapshot.wasFarming) {
-      await farm.runFarmCycle("sleep_resume");
-      return;
-    }
-    if (snapshot.mode === "follow" && snapshot.followTarget) {
-      try {
-        follow.startFollow(snapshot.followTarget);
-      } catch (error) {
-        logger.warn(
-          "Could not resume follow after sleep.",
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-      return;
-    }
-    if (snapshot.mode === "afk") {
-      await afk.startAfk(snapshot.afkPosition || undefined);
-    }
-  }
+  const activity = createActivityLifecycle(
+    state,
+    logger,
+    movement,
+    follow,
+    afk,
+    farm,
+  );
 
   bot.on("wake", () => {
     const snapshot = resumeAfterWake;
     resumeAfterWake = null;
     if (!snapshot) return;
     state.mode = "idle";
-    resumeActivity(snapshot).catch((error: unknown) => {
-      logger.error(
-        "Failed to resume activity after sleep.",
-        error instanceof Error ? error.message : String(error),
-      );
-    });
+    activity
+      .resumeActivity(snapshot, {
+        farmTrigger: "sleep_resume",
+        followResumeFailureMessage: "Could not resume follow after sleep.",
+      })
+      .catch((error: unknown) => {
+        logger.error(
+          "Failed to resume activity after sleep.",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
   });
 
   async function sleepAtSpawnBed(
@@ -107,11 +73,14 @@ export function createSleepService(
     if (triggeredBy === "auto" && !autoSleepEnabled) return false;
     if (triggeredBy === "auto" && !isNight(bot)) return false;
     if (triggeredBy === "auto" && state.mode === "afk") return false;
+    if (triggeredBy === "auto" && state.mode === "evading") return false;
 
     const spawnBed = state.spawnBedPosition;
     if (!spawnBed) {
       if (triggeredBy === "manual") {
-        bot.chat("No spawn bed configured. Use setspawnpoint or env SPAWN_BED_X/Y/Z.");
+        bot.chat(
+          "No spawn bed configured. Use setspawnpoint or env SPAWN_BED_X/Y/Z.",
+        );
       } else {
         logger.warn("Autosleep is on, but no spawn bed is configured.");
       }
@@ -130,8 +99,8 @@ export function createSleepService(
     }
 
     sleepInProgress = true;
-    const snapshot = snapshotActivity();
-    pauseActivity();
+    const snapshot = activity.snapshotActivity();
+    activity.pauseActivity();
 
     try {
       await movement.goNear(bedBlock.position, 1, config.movementTimeoutMs * 2);
@@ -148,7 +117,10 @@ export function createSleepService(
       state.mode = "sleeping";
       return true;
     } catch (error) {
-      await resumeActivity(snapshot);
+      await activity.resumeActivity(snapshot, {
+        farmTrigger: "sleep_resume",
+        followResumeFailureMessage: "Could not resume follow after sleep.",
+      });
       if (triggeredBy === "manual") {
         bot.chat(
           `Could not sleep now: ${error instanceof Error ? error.message : String(error)}`,
@@ -196,6 +168,7 @@ export function createSleepService(
       sleepInProgress ||
       bot.isSleeping ||
       state.mode === "afk" ||
+      state.mode === "evading" ||
       !isNight(bot)
     )
       return;

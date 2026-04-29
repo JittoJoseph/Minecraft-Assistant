@@ -35,6 +35,7 @@ export function createCommandRouter(
     if (!command) return;
 
     try {
+      services.evade.cancelEvade(false);
       // if bot is AFK and someone issues another command, abandon AFK first
       if (
         command.name !== "afk" &&

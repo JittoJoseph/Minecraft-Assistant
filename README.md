@@ -6,6 +6,7 @@ A modular Mineflayer bot for offline-mode servers with:
 - manual farming (`farm`)
 - continuous farming (`autofarm on` / `autofarm off`)
 - optional automatic night sleeping (`autosleep on` / `autosleep off`)
+- damage-triggered evade mode (always switches to the latest attacker, resets 60s timer, then resumes prior task)
 - mature crop harvesting for wheat, carrots, potatoes
 - position-based same-crop replanting
 - chest deposit automation with seed reserves

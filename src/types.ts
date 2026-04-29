@@ -40,7 +40,7 @@ export interface AppConfig {
 }
 
 export interface AppState {
-  mode: "idle" | "follow" | "afk" | "farming" | "sleeping";
+  mode: "idle" | "follow" | "afk" | "farming" | "sleeping" | "evading";
   followTarget: string | null;
   afkPosition: Position3 | null;
   spawnBedPosition: Position3 | null;
@@ -100,12 +100,19 @@ export interface SleepService {
   maybeAutoSleep: () => Promise<void>;
 }
 
+export interface EvadeService {
+  startEvadeFromAttacker: (attacker: any, reason?: string) => boolean;
+  cancelEvade: (resumePrevious?: boolean) => boolean;
+  isEvading: () => boolean;
+}
+
 export interface Services {
   movement: MovementService;
   follow: FollowService;
   afk: AfkService;
   farm: FarmService;
   sleep: SleepService;
+  evade: EvadeService;
 }
 
 export interface CommandContext {

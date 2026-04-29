@@ -8,10 +8,11 @@ import config from "../config/env";
 import { createFarmService } from "../farming/farmService";
 import { createAfkService } from "../services/afkService";
 import { createCommandRouter } from "../services/commandRouter";
+import { createEvadeService } from "../services/evadeService";
 import { createFollowService } from "../services/followService";
 import { createMovementService } from "../services/movement";
 import { createSleepService } from "../services/sleepService";
-import type { AppState, Position3 } from "../types";
+import type { AppState, Position3, Services } from "../types";
 import logger from "../utils/logger";
 
 function resolvePluginFunction(mod: any): ((bot: any) => void) | null {
@@ -44,11 +45,19 @@ function createState(defaultSpawnBed: Position3 | null): AppState {
   };
 }
 
+function resetTransientState(state: AppState): void {
+  state.mode = "idle";
+  state.followTarget = null;
+  state.isFarming = false;
+}
+
 export function createAssistantBot(): void {
   const state = createState(config.spawnBedPosition);
   let reconnectTimer: NodeJS.Timeout | null = null;
   let reconnectAttempt = 0;
   let lastKickWasSpam = false;
+  let shouldResumeAutoFarmAfterReconnect = false;
+  let activeServices: Services | null = null;
 
   function scheduleReconnect(): void {
     if (reconnectTimer) return;
@@ -85,6 +94,7 @@ export function createAssistantBot(): void {
 
     bot.once("spawn", () => {
       reconnectAttempt = 0;
+      resetTransientState(state);
       logger.info(
         `Spawned as '${bot.username}' (${config.appName} | ${config.inGameLabel}).`,
       );
@@ -104,41 +114,40 @@ export function createAssistantBot(): void {
         afk,
         farm,
       );
-      const services = { movement, follow, afk, farm, sleep };
+      const evade = createEvadeService(
+        bot,
+        logger,
+        state,
+        movement,
+        follow,
+        afk,
+        farm,
+      );
+      const services = { movement, follow, afk, farm, sleep, evade };
+      activeServices = services;
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
-      let previousHealth = bot.health;
-      let followResumeTimer: NodeJS.Timeout | null = null;
+      const recentEntitySwingAt = new Map<number, number>();
 
-      function scheduleFollowResume(reason: string): void {
-        if (state.mode !== "follow" || !state.followTarget) return;
-        const followTarget = state.followTarget;
-        if (followResumeTimer) {
-          clearTimeout(followResumeTimer);
-          followResumeTimer = null;
-        }
-        logger.warn(
-          `Damage detected (${reason}). Letting native knockback resolve.`,
-        );
-        followResumeTimer = setTimeout(() => {
-          followResumeTimer = null;
-          if (state.mode !== "follow" || state.followTarget !== followTarget)
-            return;
-          const player = bot.players[followTarget];
-          if (!player?.entity) return;
-          try {
-            follow.startFollow(followTarget);
-          } catch (error) {
-            logger.debug(
-              "Could not resume follow after hit.",
-              error instanceof Error ? error.message : String(error),
-            );
+      function inferDamageSource(): any | null {
+        const now = Date.now();
+        let bestCandidate: any | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const candidate of Object.values(bot.entities) as any[]) {
+          if (!candidate || candidate.id === bot.entity.id || !candidate.position) {
+            continue;
           }
-        }, 350);
-      }
-
-      function onDamage(reason: string): void {
-        scheduleFollowResume(reason);
+          if (candidate.type !== "player" && candidate.type !== "mob") {
+            continue;
+          }
+          const swungAt = recentEntitySwingAt.get(candidate.id) || 0;
+          if (now - swungAt > 1500) continue;
+          const distance = bot.entity.position.distanceTo(candidate.position);
+          if (distance > 4.5 || distance >= bestDistance) continue;
+          bestCandidate = candidate;
+          bestDistance = distance;
+        }
+        return bestCandidate;
       }
 
       if (anyBot.autoEat) {
@@ -204,16 +213,23 @@ export function createAssistantBot(): void {
         });
       });
 
-      bot.on("entityHurt", (entity) => {
+      bot.on("entityHurt", (entity, source) => {
         if (entity.id !== bot.entity.id) return;
-        onDamage("entityHurt");
+        const attacker =
+          source && source.id !== bot.entity.id ? source : inferDamageSource();
+        if (!attacker) return;
+        evade.startEvadeFromAttacker(attacker, "entity_hurt");
       });
 
-      bot.on("health", () => {
-        if (bot.health < previousHealth) {
-          onDamage("health_drop");
+      bot.on("entitySwingArm", (entity) => {
+        if (!entity?.id || entity.id === bot.entity.id) return;
+        const now = Date.now();
+        recentEntitySwingAt.set(entity.id, now);
+        for (const [entityId, swungAt] of recentEntitySwingAt.entries()) {
+          if (now - swungAt > 5000) {
+            recentEntitySwingAt.delete(entityId);
+          }
         }
-        previousHealth = bot.health;
       });
 
       bot._client.on("entity_velocity", (packet: any) => {
@@ -246,6 +262,13 @@ export function createAssistantBot(): void {
           z: config.afkPosition.z,
         };
       }
+
+      if (shouldResumeAutoFarmAfterReconnect) {
+        shouldResumeAutoFarmAfterReconnect = false;
+        if (services.farm.startAutoFarm()) {
+          logger.warn("Resuming autofarm after reconnect.");
+        }
+      }
     });
 
     bot.on("kicked", (reason) => {
@@ -256,6 +279,18 @@ export function createAssistantBot(): void {
     });
     bot.on("error", (error) => logger.error("Bot error.", error.message));
     bot.on("end", () => {
+      if (activeServices?.farm.isAutoFarmEnabled()) {
+        shouldResumeAutoFarmAfterReconnect = true;
+      }
+      if (activeServices) {
+        activeServices.evade.cancelEvade(false);
+        activeServices.farm.stopAutoFarm();
+        activeServices.farm.interruptCurrentCycle();
+        activeServices.afk.stopAfk();
+        activeServices.follow.stopFollow();
+        activeServices.movement.stop();
+      }
+      activeServices = null;
       logger.warn("Disconnected from server.");
       scheduleReconnect();
     });

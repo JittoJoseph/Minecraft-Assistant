@@ -4,6 +4,7 @@ const stop: CommandHandler = {
   name: "stop",
   match: (msg) => msg === "stop",
   async execute(ctx) {
+    ctx.services.evade.cancelEvade(false);
     ctx.services.farm.stopAutoFarm();
     ctx.services.farm.interruptCurrentCycle();
     ctx.services.follow.stopFollow();
