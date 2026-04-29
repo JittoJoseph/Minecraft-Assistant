@@ -1,4 +1,4 @@
-# Minecraft Assistant Bot (TypeScript)
+# Minecraft Assistant Bot
 
 A modular Mineflayer bot for offline-mode servers with:
 
@@ -32,7 +32,7 @@ Default username and label are set to `TigerBaby`.
 
 The env template already includes:
 
-- `MINECRAFT_SERVER=fullcrewserver.aternos.me:25172`
+- `MINECRAFT_SERVER=serveraddress:port`
 - `MINECRAFT_AUTH=offline`
 
 ## Commands
@@ -53,5 +53,6 @@ The env template already includes:
 `sleep` and `autosleep` use the current configured spawn bed and resume the previous activity after wake-up.
 
 Spawn bed config options:
+
 - set defaults in env: `SPAWN_BED_X`, `SPAWN_BED_Y`, `SPAWN_BED_Z`
 - or run `setspawnpoint` while standing on a bed to update the in-memory spawn bed for the current run (the bot prints the bed coordinates)
