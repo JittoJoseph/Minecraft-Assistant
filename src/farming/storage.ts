@@ -3,6 +3,19 @@ import { Vec3 } from "vec3";
 import type { AppConfig, Logger, MovementService } from "../types";
 import { DEPOSITABLE_CROP_ITEMS } from "./constants";
 
+const CHEST_SCAN_CACHE_TTL_MS = 45 * 1000;
+const DEPOSIT_POINT_REACH_RANGE = 2;
+const CHEST_REACH_RANGE = 2;
+
+interface ChestScanCache {
+  depositPointKey: string;
+  radius: number;
+  chestKeys: string[];
+  scannedAt: number;
+}
+
+const chestScanCacheByBot = new WeakMap<Bot, ChestScanCache>();
+
 function isInterruptedMovementError(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return (
@@ -28,56 +41,109 @@ function isChestBlock(block: any): boolean {
   return block?.name === "chest" || block?.name === "trapped_chest";
 }
 
-function collectChestBlocks(bot: Bot, config: AppConfig): any[] {
-  const chests: any[] = [];
-  const seen = new Set<string>();
+function toKey(position: { x: number; y: number; z: number }): string {
+  return `${position.x},${position.y},${position.z}`;
+}
 
-  const addChest = (block: any): void => {
-    if (!isChestBlock(block)) return;
-    const key = `${block.position.x},${block.position.y},${block.position.z}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    chests.push(block);
-  };
+function parseKey(key: string): Vec3 {
+  const [x, y, z] = key.split(",").map((value) => Number(value));
+  return new Vec3(x, y, z);
+}
 
-  if (config.chestPosition) {
-    addChest(
-      bot.blockAt(
-        new Vec3(
-          config.chestPosition.x,
-          config.chestPosition.y,
-          config.chestPosition.z,
-        ),
-      ),
-    );
+function getCanonicalChestKey(bot: Bot, chestBlock: any): string {
+  const basePos = chestBlock.position;
+  let canonical = toKey(basePos);
+  const offsets = [
+    new Vec3(1, 0, 0),
+    new Vec3(-1, 0, 0),
+    new Vec3(0, 0, 1),
+    new Vec3(0, 0, -1),
+  ];
+
+  for (const offset of offsets) {
+    const neighbor = bot.blockAt(basePos.plus(offset));
+    if (!isChestBlock(neighbor) || neighbor.name !== chestBlock.name) continue;
+    const neighborKey = toKey(neighbor.position);
+    if (neighborKey < canonical) canonical = neighborKey;
   }
 
-  const nearbyChestPositions = bot.findBlocks({
-    matching: (block: any) => isChestBlock(block),
-    maxDistance: config.chestSearchRadius,
-    count: 64,
+  return canonical;
+}
+
+function sortChestKeysByDepositPoint(
+  keys: string[],
+  depositPoint: Vec3,
+): string[] {
+  const entries = keys.map((key) => {
+    const pos = parseKey(key);
+    const dx = pos.x - depositPoint.x;
+    const dy = pos.y - depositPoint.y;
+    const dz = pos.z - depositPoint.z;
+    const distanceSquared = dx * dx + dy * dy + dz * dz;
+    return { key, x: pos.x, y: pos.y, z: pos.z, distanceSquared };
   });
 
-  for (const pos of nearbyChestPositions) {
-    addChest(bot.blockAt(pos));
-  }
-
-  if (!chests.length) {
-    const extendedChestPositions = bot.findBlocks({
-      matching: (block: any) => isChestBlock(block),
-      maxDistance: Math.max(256, config.chestSearchRadius * 2),
-      count: 64,
-    });
-    for (const pos of extendedChestPositions) {
-      addChest(bot.blockAt(pos));
+  entries.sort((a, b) => {
+    if (a.distanceSquared !== b.distanceSquared) {
+      return a.distanceSquared - b.distanceSquared;
     }
+    if (a.y !== b.y) return a.y - b.y;
+    if (a.x !== b.x) return a.x - b.x;
+    return a.z - b.z;
+  });
+
+  return entries.map((entry) => entry.key);
+}
+
+function scanStorageChests(bot: Bot, config: AppConfig): string[] {
+  const depositPoint = new Vec3(
+    config.depositPoint.x,
+    config.depositPoint.y,
+    config.depositPoint.z,
+  );
+  const chestPositions = bot.findBlocks({
+    point: depositPoint,
+    matching: (block: any) => isChestBlock(block),
+    maxDistance: config.depositSearchRadius,
+    count: 512,
+  });
+
+  const canonicalKeys = new Set<string>();
+  for (const chestPos of chestPositions) {
+    const block = bot.blockAt(chestPos);
+    if (!isChestBlock(block)) continue;
+    canonicalKeys.add(getCanonicalChestKey(bot, block));
   }
 
-  return chests.sort(
-    (a, b) =>
-      bot.entity.position.distanceTo(a.position) -
-      bot.entity.position.distanceTo(b.position),
-  );
+  return sortChestKeysByDepositPoint(Array.from(canonicalKeys), depositPoint);
+}
+
+function getStorageChestKeys(
+  bot: Bot,
+  config: AppConfig,
+  forceRefresh = false,
+): string[] {
+  const depositPointKey = toKey(config.depositPoint);
+  const cached = chestScanCacheByBot.get(bot);
+  const now = Date.now();
+  if (
+    !forceRefresh &&
+    cached &&
+    cached.depositPointKey === depositPointKey &&
+    cached.radius === config.depositSearchRadius &&
+    now - cached.scannedAt < CHEST_SCAN_CACHE_TTL_MS
+  ) {
+    return cached.chestKeys;
+  }
+
+  const chestKeys = scanStorageChests(bot, config);
+  chestScanCacheByBot.set(bot, {
+    depositPointKey,
+    radius: config.depositSearchRadius,
+    chestKeys,
+    scannedAt: now,
+  });
+  return chestKeys;
 }
 
 interface DepositPlan {
@@ -165,6 +231,64 @@ async function depositIntoChest(
   return { depositedAny, chestFull: false };
 }
 
+async function runChestDepositPass(
+  bot: Bot,
+  config: AppConfig,
+  movement: MovementService,
+  logger: Logger,
+  plans: DepositPlan[],
+  chestKeys: string[],
+): Promise<{ depositedAny: boolean; openedAnyChest: boolean }> {
+  const visitedChests = new Set<string>();
+  let depositedAny = false;
+  let openedAnyChest = false;
+
+  for (const chestKey of chestKeys) {
+    if (plans.every((plan) => plan.remaining <= 0)) break;
+    if (visitedChests.has(chestKey)) continue;
+    visitedChests.add(chestKey);
+
+    const block = bot.blockAt(parseKey(chestKey));
+    if (!isChestBlock(block)) continue;
+
+    try {
+      await movement.goNear(
+        block.position,
+        CHEST_REACH_RANGE,
+        config.movementTimeoutMs * 2,
+      );
+    } catch (error) {
+      if (isInterruptedMovementError(error)) continue;
+      logger.warn(
+        "Could not reach storage chest for deposit.",
+        error instanceof Error ? error.message : String(error),
+      );
+      continue;
+    }
+
+    let chest: any;
+    try {
+      chest = await bot.openChest(block);
+      openedAnyChest = true;
+    } catch (error) {
+      logger.warn(
+        "Could not open storage chest for deposit.",
+        error instanceof Error ? error.message : String(error),
+      );
+      continue;
+    }
+
+    try {
+      const result = await depositIntoChest(chest, plans);
+      if (result.depositedAny) depositedAny = true;
+    } finally {
+      chest.close();
+    }
+  }
+
+  return { depositedAny, openedAnyChest };
+}
+
 export interface DepositResult {
   deposited: boolean;
   reason?: "no_chest" | "open_failed" | "destination_full";
@@ -192,68 +316,63 @@ export async function depositToChest(
     return { deposited: false };
   }
 
-  const chestBlocks = collectChestBlocks(bot, config);
-  if (!chestBlocks.length) {
-    logger.warn("No chest found for deposit.");
+  try {
+    await movement.goNear(
+      config.depositPoint,
+      DEPOSIT_POINT_REACH_RANGE,
+      config.movementTimeoutMs * 2,
+    );
+  } catch (error) {
+    logger.warn(
+      "Could not reach deposit point.",
+      error instanceof Error ? error.message : String(error),
+    );
+    return { deposited: false, reason: "open_failed" };
+  }
+
+  let chestKeys = getStorageChestKeys(bot, config, false);
+  if (!chestKeys.length) {
+    logger.warn("No storage chests found near deposit point.");
     return { deposited: false, reason: "no_chest" };
   }
 
   let depositedAny = false;
   let openedAnyChest = false;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const passResult = await runChestDepositPass(
+      bot,
+      config,
+      movement,
+      logger,
+      plans,
+      chestKeys,
+    );
+    depositedAny = depositedAny || passResult.depositedAny;
+    openedAnyChest = openedAnyChest || passResult.openedAnyChest;
 
-  for (const chestBlock of chestBlocks) {
     if (plans.every((plan) => plan.remaining <= 0)) {
-      break;
+      return { deposited: true };
     }
 
-    try {
-      await movement.goNear(
-        chestBlock.position,
-        2,
-        config.movementTimeoutMs * 2,
-      );
-    } catch (error) {
-      if (isInterruptedMovementError(error)) {
-        continue;
-      }
-      logger.warn(
-        "Could not reach chest for deposit.",
-        error instanceof Error ? error.message : String(error),
-      );
-      continue;
-    }
-
-    let chest: any;
-    try {
-      chest = await bot.openChest(chestBlock);
-      openedAnyChest = true;
-    } catch (error) {
-      logger.warn(
-        "Could not open chest for deposit.",
-        error instanceof Error ? error.message : String(error),
-      );
-      continue;
-    }
-
-    try {
-      const result = await depositIntoChest(chest, plans);
-      if (result.depositedAny) {
-        depositedAny = true;
-      }
-      if (!result.chestFull && plans.every((plan) => plan.remaining <= 0)) {
-        break;
-      }
-    } finally {
-      chest.close();
+    if (attempt === 0) {
+      chestKeys = getStorageChestKeys(bot, config, true);
+      if (!chestKeys.length) break;
     }
   }
 
-  if (plans.some((plan) => plan.remaining > 0)) {
-    if (!openedAnyChest) {
-      return { deposited: depositedAny, reason: "open_failed" };
-    }
-    return { deposited: depositedAny, reason: "destination_full" };
+  try {
+    await movement.goNear(
+      config.depositPoint,
+      DEPOSIT_POINT_REACH_RANGE,
+      config.movementTimeoutMs,
+    );
+  } catch {
+    // best-effort fallback position
   }
 
-  return { deposited: true };
+  logger.warn("Storage hall full or unavailable; deposit incomplete.");
+  if (!openedAnyChest) {
+    return { deposited: depositedAny, reason: "open_failed" };
+  }
+  return { deposited: depositedAny, reason: "destination_full" };
 }

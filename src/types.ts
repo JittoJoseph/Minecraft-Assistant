@@ -25,8 +25,8 @@ export interface AppConfig {
   farmCycleMaxMs: number;
   autoFarmIntervalMs: number;
   movementTimeoutMs: number;
-  chestPosition: Position3 | null;
-  chestSearchRadius: number;
+  depositPoint: Position3;
+  depositSearchRadius: number;
   inventoryDepositThreshold: number;
   inventoryDepositIntervalMs: number;
   reserve: Record<string, number>;

@@ -1,11 +1,12 @@
 import dotenv from "dotenv";
 import type { AppConfig } from "../types";
-import { parseServerAddress } from "../utils/position";
+import { parseCoordinateTriplet, parseServerAddress } from "../utils/position";
 
 // Minimal env usage: server, username, auth
 dotenv.config();
 
 const parsedAddress = parseServerAddress(process.env.MINECRAFT_SERVER);
+const DEFAULT_DEPOSIT_POINT = Object.freeze({ x: -106, y: 52, z: 124 });
 
 function parseCoordinate(name: string): number | null {
   const raw = process.env[name];
@@ -45,6 +46,14 @@ const spawnBedPosition =
   spawnBedX !== null && spawnBedY !== null && spawnBedZ !== null
     ? { x: spawnBedX, y: spawnBedY, z: spawnBedZ }
     : null;
+const parsedDepositPoint = parseCoordinateTriplet(process.env.DEPOSIT_POINT);
+const depositPoint = parsedDepositPoint
+  ? {
+      x: Math.floor(parsedDepositPoint.x),
+      y: Math.floor(parsedDepositPoint.y),
+      z: Math.floor(parsedDepositPoint.z),
+    }
+  : DEFAULT_DEPOSIT_POINT;
 
 const config: AppConfig = {
   appName: process.env.APP_NAME || "Minecraft Assistant",
@@ -67,8 +76,8 @@ const config: AppConfig = {
   farmCycleMaxMs: 4 * 60 * 1000,
   autoFarmIntervalMs: 1500,
   movementTimeoutMs: 20 * 1000,
-  chestPosition: null,
-  chestSearchRadius: 96,
+  depositPoint,
+  depositSearchRadius: 48,
   inventoryDepositThreshold: 18,
   inventoryDepositIntervalMs: 2 * 60 * 1000,
   reserve: { wheat: 64, wheat_seeds: 64, carrot: 64, potato: 64 },

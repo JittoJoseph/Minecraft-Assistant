@@ -38,6 +38,7 @@ The env template already includes:
 - `MINECRAFT_SERVER=serveraddress:port`
 - `MINECRAFT_AUTH=offline`
 - `COMMAND_PREFIX=bot`
+- `DEPOSIT_POINT=-106,52,124`
 - `AUTOFARM_ON_START=false`
 - `DISCORD_WEBHOOK_URL=`
 
@@ -66,3 +67,8 @@ Spawn bed config options:
 
 - set defaults in env: `SPAWN_BED_X`, `SPAWN_BED_Y`, `SPAWN_BED_Z`
 - or run `setspawnpoint` while standing on a bed to update the in-memory spawn bed for the current run (the bot prints the bed coordinates)
+
+Storage deposit config:
+
+- `DEPOSIT_POINT` sets the storage hall anchor for all deposits (`x,y,z`)
+- bot scans chests only within the configured storage radius around that point
