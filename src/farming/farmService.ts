@@ -50,7 +50,9 @@ export function createFarmService(
   state: AppState,
 ): FarmService {
   const pickupSweepEveryHarvests = 8;
+  const botFarmLanes = 5;
   const botVarianceSeed = hashString(bot.username || "bot");
+  const botLane = botVarianceSeed % botFarmLanes;
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let autoFarmPatrolStep = 0;
@@ -379,6 +381,10 @@ export function createFarmService(
     return (mixed % 10000) / 10000;
   }
 
+  function laneForGroup(groupKey: string): number {
+    return hashString(`${groupKey}|lane`) % botFarmLanes;
+  }
+
   function selectLocalSquareBatch(
     jobs: HarvestJob[],
     cycleIndex: number,
@@ -404,10 +410,18 @@ export function createFarmService(
       ([aKey, aGroup], [bKey, bGroup]) => {
         const aDistance = bot.entity.position.distanceTo(aGroup[0].position);
         const bDistance = bot.entity.position.distanceTo(bGroup[0].position);
+        const aLaneBonus = laneForGroup(aKey) === botLane ? 220 : -30;
+        const bLaneBonus = laneForGroup(bKey) === botLane ? 220 : -30;
         const aScore =
-          aGroup.length * 100 - aDistance + cycleNoise(aKey, cycleIndex) * 35;
+          aGroup.length * 70 -
+          aDistance * 1.2 +
+          cycleNoise(aKey, cycleIndex) * 140 +
+          aLaneBonus;
         const bScore =
-          bGroup.length * 100 - bDistance + cycleNoise(bKey, cycleIndex) * 35;
+          bGroup.length * 70 -
+          bDistance * 1.2 +
+          cycleNoise(bKey, cycleIndex) * 140 +
+          bLaneBonus;
         return bScore - aScore;
       },
     );
@@ -422,14 +436,14 @@ export function createFarmService(
               `${groupKey}:${a.position.x}:${a.position.z}`,
               cycleIndex,
             ) *
-              2.5;
+              6;
           const bDistance =
             bot.entity.position.distanceTo(b.position) -
             cycleNoise(
               `${groupKey}:${b.position.x}:${b.position.z}`,
               cycleIndex,
             ) *
-              2.5;
+              6;
           return aDistance - bDistance;
         },
       );
