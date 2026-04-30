@@ -6,6 +6,8 @@ import { DEPOSITABLE_CROP_ITEMS } from "./constants";
 const CHEST_SCAN_CACHE_TTL_MS = 45 * 1000;
 const DEPOSIT_POINT_REACH_RANGE = 2;
 const CHEST_REACH_RANGE = 2;
+const CHEST_MOVE_TIMEOUT_CAP_MS = 7 * 1000;
+const CHEST_OPEN_TIMEOUT_MS = 3500;
 
 interface ChestScanCache {
   depositPointKey: string;
@@ -48,6 +50,24 @@ function toKey(position: { x: number; y: number; z: number }): string {
 function parseKey(key: string): Vec3 {
   const [x, y, z] = key.split(",").map((value) => Number(value));
   return new Vec3(x, y, z);
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`timeout_${timeoutMs}ms`));
+    }, timeoutMs);
+
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
 }
 
 function getCanonicalChestKey(bot: Bot, chestBlock: any): string {
@@ -250,12 +270,16 @@ async function runChestDepositPass(
 
     const block = bot.blockAt(parseKey(chestKey));
     if (!isChestBlock(block)) continue;
+    const chestMoveTimeout = Math.min(
+      config.movementTimeoutMs,
+      CHEST_MOVE_TIMEOUT_CAP_MS,
+    );
 
     try {
       await movement.goNear(
         block.position,
         CHEST_REACH_RANGE,
-        config.movementTimeoutMs * 2,
+        chestMoveTimeout,
       );
     } catch (error) {
       if (isInterruptedMovementError(error)) continue;
@@ -268,7 +292,7 @@ async function runChestDepositPass(
 
     let chest: any;
     try {
-      chest = await bot.openChest(block);
+      chest = await withTimeout(bot.openChest(block), CHEST_OPEN_TIMEOUT_MS);
       openedAnyChest = true;
     } catch (error) {
       logger.warn(
