@@ -1,7 +1,7 @@
 import type { Bot } from "mineflayer";
 import { Vec3 } from "vec3";
 import type { AppConfig, Logger, MovementService } from "../types";
-import { DEPOSITABLE_CROP_ITEMS } from "./constants";
+import { CROP_REPLANT_ITEM, DEPOSITABLE_CROP_ITEMS } from "./constants";
 
 const STORAGE_SCAN_CACHE_TTL_MS = 45 * 1000;
 const DEPOSIT_POINT_REACH_RANGE = 2;
@@ -9,6 +9,7 @@ const STORAGE_REACH_RANGE = 2;
 const STORAGE_MOVE_TIMEOUT_CAP_MS = 7 * 1000;
 const STORAGE_OPEN_TIMEOUT_MS = 3500;
 const WHEAT_SEEDS_ITEM_NAME = "wheat_seeds";
+const RESERVED_SEED_ITEMS = new Set(Object.values(CROP_REPLANT_ITEM));
 
 type StorageContainerKind = "chest" | "barrel";
 
@@ -52,6 +53,7 @@ function shouldDepositItem(itemName: string): boolean {
 }
 
 function keepCountForItem(config: AppConfig, itemName: string): number {
+  if (!RESERVED_SEED_ITEMS.has(itemName)) return 0;
   return config.reserve[itemName] || 0;
 }
 

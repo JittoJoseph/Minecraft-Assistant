@@ -170,6 +170,7 @@ export function createFarmService(
 
     const result = await depositToChest(bot, config, movement, logger, {
       keepReserve,
+      includeAllItems: true,
     });
     if (result.deposited) {
       lastDepositAt = Date.now();
@@ -514,7 +515,7 @@ export function createFarmService(
     unloadInProgress = true;
     try {
       const result = await depositToChest(bot, config, movement, logger, {
-        keepReserve: false,
+        keepReserve: true,
         includeAllItems: true,
       });
       if (result.deposited) {

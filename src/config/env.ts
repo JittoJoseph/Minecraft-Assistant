@@ -80,7 +80,7 @@ const config: AppConfig = {
   depositSearchRadius: 48,
   inventoryDepositThreshold: 18,
   inventoryDepositIntervalMs: 2 * 60 * 1000,
-  reserve: { wheat: 64, wheat_seeds: 64, carrot: 64, potato: 64 },
+  reserve: { wheat_seeds: 64, carrot: 64, potato: 64 },
   afkPosition: null,
   spawnBedPosition,
   afkJumpIntervalMs: 20 * 1000,
