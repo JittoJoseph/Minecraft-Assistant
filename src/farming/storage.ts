@@ -90,23 +90,32 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
-function getCanonicalChestKey(bot: Bot, chestBlock: any): string {
+function getAdjacentChestKeys(bot: Bot, chestBlock: any): string[] {
   const basePos = chestBlock.position;
-  let canonical = toKey(basePos);
   const offsets = [
     new Vec3(1, 0, 0),
     new Vec3(-1, 0, 0),
     new Vec3(0, 0, 1),
     new Vec3(0, 0, -1),
   ];
+  const adjacentKeys: string[] = [];
 
   for (const offset of offsets) {
     const neighbor = bot.blockAt(basePos.plus(offset));
     if (!isChestBlock(neighbor) || neighbor.name !== chestBlock.name) continue;
-    const neighborKey = toKey(neighbor.position);
-    if (neighborKey < canonical) canonical = neighborKey;
+    adjacentKeys.push(toKey(neighbor.position));
   }
 
+  return adjacentKeys;
+}
+
+function getCanonicalDoubleChestKey(bot: Bot, chestBlock: any): string | null {
+  const adjacentKeys = getAdjacentChestKeys(bot, chestBlock);
+  if (adjacentKeys.length === 0) return null;
+  let canonical = toKey(chestBlock.position);
+  for (const neighborKey of adjacentKeys) {
+    if (neighborKey < canonical) canonical = neighborKey;
+  }
   return canonical;
 }
 
@@ -152,7 +161,10 @@ function scanStorageContainers(bot: Bot, config: AppConfig): StorageScanResult {
     const block = bot.blockAt(storagePos);
     if (!block) continue;
     if (isChestBlock(block)) {
-      chestKeys.add(getCanonicalChestKey(bot, block));
+      const canonicalDoubleChestKey = getCanonicalDoubleChestKey(bot, block);
+      if (canonicalDoubleChestKey) {
+        chestKeys.add(canonicalDoubleChestKey);
+      }
       continue;
     }
     if (isBarrelBlock(block)) {
@@ -276,8 +288,13 @@ async function depositIntoContainer(
   return depositedAny;
 }
 
-function isContainerBlockOfKind(block: any, kind: StorageContainerKind): boolean {
-  return kind === "chest" ? isChestBlock(block) : isBarrelBlock(block);
+function isContainerBlockOfKind(
+  bot: Bot,
+  block: any,
+  kind: StorageContainerKind,
+): boolean {
+  if (kind === "barrel") return isBarrelBlock(block);
+  return isChestBlock(block) && getAdjacentChestKeys(bot, block).length > 0;
 }
 
 async function openContainerForDeposit(
@@ -314,7 +331,7 @@ async function runContainerDepositPass(
     visitedContainers.add(containerKey);
 
     const block = bot.blockAt(parseKey(containerKey));
-    if (!isContainerBlockOfKind(block, kind)) continue;
+    if (!isContainerBlockOfKind(bot, block, kind)) continue;
 
     try {
       await movement.goNear(block.position, STORAGE_REACH_RANGE, moveTimeout);
