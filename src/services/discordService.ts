@@ -16,6 +16,8 @@ export function createDiscordService(
   botName: string,
   logger: Logger,
 ): DiscordService {
+  const avatarUrl = `https://mc-heads.net/avatar/${encodeURIComponent(botName)}/128`;
+
   async function sendEmbed(embed: DiscordEmbed): Promise<void> {
     if (!webhookUrl) return;
     try {
@@ -24,6 +26,7 @@ export function createDiscordService(
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           username: botName,
+          avatar_url: avatarUrl,
           embeds: [embed],
         }),
       });
@@ -45,7 +48,7 @@ export function createDiscordService(
     const player = sanitize(username);
     await sendEmbed({
       title: "Minecraft Activity",
-      description: `Bot ${botName}\nEvent Player Joined\nPlayer ${player}`,
+      description: `Player joined\n${player}`,
       color: 0x3b82f6,
       timestamp: new Date().toISOString(),
     });
@@ -55,14 +58,14 @@ export function createDiscordService(
     const player = sanitize(username);
     await sendEmbed({
       title: "Minecraft Activity",
-      description: `Bot ${botName}\nEvent Player Left\nPlayer ${player}`,
+      description: `Player left\n${player}`,
       color: 0xf97316,
       timestamp: new Date().toISOString(),
     });
   }
 
   async function sendOnlinePlayers(
-    requestedBy: string,
+    _requestedBy: string,
     players: string[],
   ): Promise<void> {
     const uniquePlayers = Array.from(
@@ -75,10 +78,7 @@ export function createDiscordService(
     await sendEmbed({
       title: "Minecraft Activity",
       description:
-        `Bot ${botName}\n` +
-        `Event Online Players Requested\n` +
-        `Requested By ${sanitize(requestedBy)}\n` +
-        `Online Count ${uniquePlayers.length}\n` +
+        `Online count ${uniquePlayers.length}\n` +
         `Players\n${playerLines}`,
       color: 0x22c55e,
       timestamp: new Date().toISOString(),
