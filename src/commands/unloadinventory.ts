@@ -4,7 +4,7 @@ const unloadinventory: CommandHandler = {
   name: "unloadinventory",
   match: (msg) => msg === "unloadinventory",
   async execute(ctx) {
-    ctx.bot.chat("Unloading inventory to chests...");
+    ctx.bot.chat("Unloading inventory to storage...");
     const unloaded = await ctx.services.farm.unloadToChest();
     if (unloaded) {
       ctx.bot.chat("Inventory unload complete.");

@@ -3,20 +3,36 @@ import { Vec3 } from "vec3";
 import type { AppConfig, Logger, MovementService } from "../types";
 import { DEPOSITABLE_CROP_ITEMS } from "./constants";
 
-const CHEST_SCAN_CACHE_TTL_MS = 45 * 1000;
+const STORAGE_SCAN_CACHE_TTL_MS = 45 * 1000;
 const DEPOSIT_POINT_REACH_RANGE = 2;
-const CHEST_REACH_RANGE = 2;
-const CHEST_MOVE_TIMEOUT_CAP_MS = 7 * 1000;
-const CHEST_OPEN_TIMEOUT_MS = 3500;
+const STORAGE_REACH_RANGE = 2;
+const STORAGE_MOVE_TIMEOUT_CAP_MS = 7 * 1000;
+const STORAGE_OPEN_TIMEOUT_MS = 3500;
+const WHEAT_SEEDS_ITEM_NAME = "wheat_seeds";
 
-interface ChestScanCache {
+type StorageContainerKind = "chest" | "barrel";
+
+interface StorageScanCache {
   depositPointKey: string;
   radius: number;
   chestKeys: string[];
+  barrelKeys: string[];
   scannedAt: number;
 }
 
-const chestScanCacheByBot = new WeakMap<Bot, ChestScanCache>();
+interface StorageScanResult {
+  chestKeys: string[];
+  barrelKeys: string[];
+}
+
+interface DepositPlan {
+  itemName: string;
+  itemType: number;
+  metadata: number;
+  remaining: number;
+}
+
+const storageScanCacheByBot = new WeakMap<Bot, StorageScanCache>();
 
 function isInterruptedMovementError(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
@@ -41,6 +57,10 @@ function keepCountForItem(config: AppConfig, itemName: string): number {
 
 function isChestBlock(block: any): boolean {
   return block?.name === "chest" || block?.name === "trapped_chest";
+}
+
+function isBarrelBlock(block: any): boolean {
+  return block?.name === "barrel";
 }
 
 function toKey(position: { x: number; y: number; z: number }): string {
@@ -90,10 +110,7 @@ function getCanonicalChestKey(bot: Bot, chestBlock: any): string {
   return canonical;
 }
 
-function sortChestKeysByDepositPoint(
-  keys: string[],
-  depositPoint: Vec3,
-): string[] {
+function sortStorageKeysByDepositPoint(keys: string[], depositPoint: Vec3): string[] {
   const entries = keys.map((key) => {
     const pos = parseKey(key);
     const dx = pos.x - depositPoint.x;
@@ -115,62 +132,70 @@ function sortChestKeysByDepositPoint(
   return entries.map((entry) => entry.key);
 }
 
-function scanStorageChests(bot: Bot, config: AppConfig): string[] {
+function scanStorageContainers(bot: Bot, config: AppConfig): StorageScanResult {
   const depositPoint = new Vec3(
     config.depositPoint.x,
     config.depositPoint.y,
     config.depositPoint.z,
   );
-  const chestPositions = bot.findBlocks({
+  const storagePositions = bot.findBlocks({
     point: depositPoint,
-    matching: (block: any) => isChestBlock(block),
+    matching: (block: any) => isChestBlock(block) || isBarrelBlock(block),
     maxDistance: config.depositSearchRadius,
-    count: 512,
+    count: 768,
   });
 
-  const canonicalKeys = new Set<string>();
-  for (const chestPos of chestPositions) {
-    const block = bot.blockAt(chestPos);
-    if (!isChestBlock(block)) continue;
-    canonicalKeys.add(getCanonicalChestKey(bot, block));
+  const chestKeys = new Set<string>();
+  const barrelKeys = new Set<string>();
+
+  for (const storagePos of storagePositions) {
+    const block = bot.blockAt(storagePos);
+    if (!block) continue;
+    if (isChestBlock(block)) {
+      chestKeys.add(getCanonicalChestKey(bot, block));
+      continue;
+    }
+    if (isBarrelBlock(block)) {
+      barrelKeys.add(toKey(block.position));
+    }
   }
 
-  return sortChestKeysByDepositPoint(Array.from(canonicalKeys), depositPoint);
+  return {
+    chestKeys: sortStorageKeysByDepositPoint(Array.from(chestKeys), depositPoint),
+    barrelKeys: sortStorageKeysByDepositPoint(
+      Array.from(barrelKeys),
+      depositPoint,
+    ),
+  };
 }
 
-function getStorageChestKeys(
+function getStorageContainers(
   bot: Bot,
   config: AppConfig,
   forceRefresh = false,
-): string[] {
+): StorageScanResult {
   const depositPointKey = toKey(config.depositPoint);
-  const cached = chestScanCacheByBot.get(bot);
+  const cached = storageScanCacheByBot.get(bot);
   const now = Date.now();
   if (
     !forceRefresh &&
     cached &&
     cached.depositPointKey === depositPointKey &&
     cached.radius === config.depositSearchRadius &&
-    now - cached.scannedAt < CHEST_SCAN_CACHE_TTL_MS
+    now - cached.scannedAt < STORAGE_SCAN_CACHE_TTL_MS
   ) {
-    return cached.chestKeys;
+    return { chestKeys: cached.chestKeys, barrelKeys: cached.barrelKeys };
   }
 
-  const chestKeys = scanStorageChests(bot, config);
-  chestScanCacheByBot.set(bot, {
+  const scanned = scanStorageContainers(bot, config);
+  storageScanCacheByBot.set(bot, {
     depositPointKey,
     radius: config.depositSearchRadius,
-    chestKeys,
+    chestKeys: scanned.chestKeys,
+    barrelKeys: scanned.barrelKeys,
     scannedAt: now,
   });
-  return chestKeys;
-}
-
-interface DepositPlan {
-  itemName: string;
-  itemType: number;
-  metadata: number;
-  remaining: number;
+  return scanned;
 }
 
 function buildDepositPlan(
@@ -211,12 +236,12 @@ function buildDepositPlan(
   return plans.sort((a, b) => b.remaining - a.remaining);
 }
 
-function canChestAcceptItem(chest: any, plan: DepositPlan): boolean {
-  if (typeof chest.firstEmptyContainerSlot === "function") {
-    if (chest.firstEmptyContainerSlot() !== null) return true;
+function canContainerAcceptItem(container: any, plan: DepositPlan): boolean {
+  if (typeof container.firstEmptyContainerSlot === "function") {
+    if (container.firstEmptyContainerSlot() !== null) return true;
   }
 
-  const containerItems = chest.containerItems?.() || [];
+  const containerItems = container.containerItems?.() || [];
   return containerItems.some(
     (item: any) =>
       item?.type === plan.itemType &&
@@ -225,92 +250,104 @@ function canChestAcceptItem(chest: any, plan: DepositPlan): boolean {
   );
 }
 
-async function depositIntoChest(
-  chest: any,
+async function depositIntoContainer(
+  container: any,
   plans: DepositPlan[],
-): Promise<{ depositedAny: boolean; chestFull: boolean }> {
+): Promise<boolean> {
   let depositedAny = false;
 
   for (const plan of plans) {
     if (plan.remaining <= 0) continue;
-    if (!canChestAcceptItem(chest, plan)) continue;
+    if (!canContainerAcceptItem(container, plan)) continue;
 
     try {
-      await chest.deposit(plan.itemType, plan.metadata, plan.remaining);
+      await container.deposit(plan.itemType, plan.metadata, plan.remaining);
       depositedAny = true;
       plan.remaining = 0;
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       if (text.includes("destination full")) {
-        return { depositedAny, chestFull: true };
+        return depositedAny;
       }
       throw error;
     }
   }
 
-  return { depositedAny, chestFull: false };
+  return depositedAny;
 }
 
-async function runChestDepositPass(
+function isContainerBlockOfKind(block: any, kind: StorageContainerKind): boolean {
+  return kind === "chest" ? isChestBlock(block) : isBarrelBlock(block);
+}
+
+async function openContainerForDeposit(
+  bot: Bot,
+  block: any,
+  kind: StorageContainerKind,
+): Promise<any> {
+  const openPromise =
+    kind === "chest" ? bot.openChest(block) : bot.openContainer(block);
+  return withTimeout(openPromise, STORAGE_OPEN_TIMEOUT_MS);
+}
+
+async function runContainerDepositPass(
   bot: Bot,
   config: AppConfig,
   movement: MovementService,
   logger: Logger,
   plans: DepositPlan[],
-  chestKeys: string[],
-): Promise<{ depositedAny: boolean; openedAnyChest: boolean }> {
-  const visitedChests = new Set<string>();
+  containerKeys: string[],
+  kind: StorageContainerKind,
+): Promise<{ depositedAny: boolean; openedAnyContainer: boolean }> {
+  if (!plans.length || !containerKeys.length) {
+    return { depositedAny: false, openedAnyContainer: false };
+  }
+
+  const visitedContainers = new Set<string>();
   let depositedAny = false;
-  let openedAnyChest = false;
+  let openedAnyContainer = false;
+  const moveTimeout = Math.min(config.movementTimeoutMs, STORAGE_MOVE_TIMEOUT_CAP_MS);
 
-  for (const chestKey of chestKeys) {
+  for (const containerKey of containerKeys) {
     if (plans.every((plan) => plan.remaining <= 0)) break;
-    if (visitedChests.has(chestKey)) continue;
-    visitedChests.add(chestKey);
+    if (visitedContainers.has(containerKey)) continue;
+    visitedContainers.add(containerKey);
 
-    const block = bot.blockAt(parseKey(chestKey));
-    if (!isChestBlock(block)) continue;
-    const chestMoveTimeout = Math.min(
-      config.movementTimeoutMs,
-      CHEST_MOVE_TIMEOUT_CAP_MS,
-    );
+    const block = bot.blockAt(parseKey(containerKey));
+    if (!isContainerBlockOfKind(block, kind)) continue;
 
     try {
-      await movement.goNear(
-        block.position,
-        CHEST_REACH_RANGE,
-        chestMoveTimeout,
-      );
+      await movement.goNear(block.position, STORAGE_REACH_RANGE, moveTimeout);
     } catch (error) {
       if (isInterruptedMovementError(error)) continue;
       logger.warn(
-        "Could not reach storage chest for deposit.",
+        `Could not reach storage ${kind} for deposit.`,
         error instanceof Error ? error.message : String(error),
       );
       continue;
     }
 
-    let chest: any;
+    let container: any;
     try {
-      chest = await withTimeout(bot.openChest(block), CHEST_OPEN_TIMEOUT_MS);
-      openedAnyChest = true;
+      container = await openContainerForDeposit(bot, block, kind);
+      openedAnyContainer = true;
     } catch (error) {
       logger.warn(
-        "Could not open storage chest for deposit.",
+        `Could not open storage ${kind} for deposit.`,
         error instanceof Error ? error.message : String(error),
       );
       continue;
     }
 
     try {
-      const result = await depositIntoChest(chest, plans);
-      if (result.depositedAny) depositedAny = true;
+      const containerDeposited = await depositIntoContainer(container, plans);
+      if (containerDeposited) depositedAny = true;
     } finally {
-      chest.close();
+      container.close();
     }
   }
 
-  return { depositedAny, openedAnyChest };
+  return { depositedAny, openedAnyContainer };
 }
 
 export interface DepositResult {
@@ -354,33 +391,71 @@ export async function depositToChest(
     return { deposited: false, reason: "open_failed" };
   }
 
-  let chestKeys = getStorageChestKeys(bot, config, false);
-  if (!chestKeys.length) {
-    logger.warn("No storage chests found near deposit point.");
+  let storage = getStorageContainers(bot, config, false);
+  if (!storage.chestKeys.length && !storage.barrelKeys.length) {
+    logger.warn("No storage containers found near deposit point.");
     return { deposited: false, reason: "no_chest" };
   }
 
+  const seedPlans = plans.filter((plan) => plan.itemName === WHEAT_SEEDS_ITEM_NAME);
+  const generalPlans = plans.filter(
+    (plan) => plan.itemName !== WHEAT_SEEDS_ITEM_NAME,
+  );
+
   let depositedAny = false;
-  let openedAnyChest = false;
+  let openedAnyContainer = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const passResult = await runChestDepositPass(
-      bot,
-      config,
-      movement,
-      logger,
-      plans,
-      chestKeys,
-    );
-    depositedAny = depositedAny || passResult.depositedAny;
-    openedAnyChest = openedAnyChest || passResult.openedAnyChest;
+    if (generalPlans.length > 0 && storage.chestKeys.length > 0) {
+      const chestPass = await runContainerDepositPass(
+        bot,
+        config,
+        movement,
+        logger,
+        generalPlans,
+        storage.chestKeys,
+        "chest",
+      );
+      depositedAny = depositedAny || chestPass.depositedAny;
+      openedAnyContainer = openedAnyContainer || chestPass.openedAnyContainer;
+    }
+
+    if (seedPlans.length > 0 && storage.barrelKeys.length > 0) {
+      const barrelPass = await runContainerDepositPass(
+        bot,
+        config,
+        movement,
+        logger,
+        seedPlans,
+        storage.barrelKeys,
+        "barrel",
+      );
+      depositedAny = depositedAny || barrelPass.depositedAny;
+      openedAnyContainer = openedAnyContainer || barrelPass.openedAnyContainer;
+    }
+
+    const seedsStillRemaining = seedPlans.some((plan) => plan.remaining > 0);
+    if (seedsStillRemaining && storage.chestKeys.length > 0) {
+      const seedFallbackChestPass = await runContainerDepositPass(
+        bot,
+        config,
+        movement,
+        logger,
+        seedPlans,
+        storage.chestKeys,
+        "chest",
+      );
+      depositedAny = depositedAny || seedFallbackChestPass.depositedAny;
+      openedAnyContainer =
+        openedAnyContainer || seedFallbackChestPass.openedAnyContainer;
+    }
 
     if (plans.every((plan) => plan.remaining <= 0)) {
       return { deposited: true };
     }
 
     if (attempt === 0) {
-      chestKeys = getStorageChestKeys(bot, config, true);
-      if (!chestKeys.length) break;
+      storage = getStorageContainers(bot, config, true);
+      if (!storage.chestKeys.length && !storage.barrelKeys.length) break;
     }
   }
 
@@ -395,7 +470,7 @@ export async function depositToChest(
   }
 
   logger.warn("Storage hall full or unavailable; deposit incomplete.");
-  if (!openedAnyChest) {
+  if (!openedAnyContainer) {
     return { deposited: depositedAny, reason: "open_failed" };
   }
   return { deposited: depositedAny, reason: "destination_full" };
