@@ -37,24 +37,28 @@ The env template already includes:
 
 - `MINECRAFT_SERVER=serveraddress:port`
 - `MINECRAFT_AUTH=offline`
+- `COMMAND_PREFIX=bot`
 - `AUTOFARM_ON_START=false`
 - `DISCORD_WEBHOOK_URL=`
 
+Every command must include the prefix. Without it, bots ignore the message.
+Example: `b1 come`, `b2 afk`, `bot help`.
+
 ## Commands
 
-- `follow me`
-- `come`
-- `afk`
-- `stop`
-- `setspawnpoint`
-- `sleep`
-- `farm`
-- `autofarm on`
-- `autofarm off`
-- `autosleep on`
-- `autosleep off`
-- `discord players`
-- `help`
+- `<prefix> follow me`
+- `<prefix> come`
+- `<prefix> afk`
+- `<prefix> stop`
+- `<prefix> setspawnpoint`
+- `<prefix> sleep`
+- `<prefix> farm`
+- `<prefix> autofarm on`
+- `<prefix> autofarm off`
+- `<prefix> autosleep on`
+- `<prefix> autosleep off`
+- `<prefix> discord players`
+- `<prefix> help`
 
 `sleep` and `autosleep` use the current configured spawn bed and resume the previous activity after wake-up.
 

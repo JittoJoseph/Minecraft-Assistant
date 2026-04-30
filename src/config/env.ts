@@ -28,6 +28,16 @@ function parseBoolean(name: string, defaultValue: boolean): boolean {
   throw new Error(`Invalid ${name}. Expected true/false.`);
 }
 
+function parseCommandPrefix(): string {
+  const raw = process.env.COMMAND_PREFIX;
+  if (!raw || !raw.trim()) return "bot";
+  const normalized = raw.trim().toLowerCase();
+  if (normalized.includes(" ")) {
+    throw new Error("Invalid COMMAND_PREFIX. Prefix cannot contain spaces.");
+  }
+  return normalized;
+}
+
 const spawnBedX = parseCoordinate("SPAWN_BED_X");
 const spawnBedY = parseCoordinate("SPAWN_BED_Y");
 const spawnBedZ = parseCoordinate("SPAWN_BED_Z");
@@ -68,7 +78,7 @@ const config: AppConfig = {
   reconnectBaseDelayMs: 5000,
   reconnectMaxDelayMs: 60 * 1000,
   trustedPlayers: [],
-  commandPrefix: "",
+  commandPrefix: parseCommandPrefix(),
   autoFarmOnStart: parseBoolean("AUTOFARM_ON_START", false),
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL?.trim() || "",
 };

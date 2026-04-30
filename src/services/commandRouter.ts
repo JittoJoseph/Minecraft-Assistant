@@ -9,6 +9,7 @@ export function createCommandRouter(
   services: Services,
 ) {
   const lastCommandByUser = new Map<string, { command: string; at: number }>();
+  const requiredPrefix = (config.commandPrefix || "bot").trim().toLowerCase();
 
   function isAuthorized(username: string): boolean {
     if (!config.trustedPlayers.length) return true;
@@ -25,13 +26,17 @@ export function createCommandRouter(
     const content = rawMessage.trim().toLowerCase();
 
     if (!content) return;
+    const prefixWithSpace = `${requiredPrefix} `;
+    if (!content.startsWith(prefixWithSpace)) return;
+    const commandText = content.slice(prefixWithSpace.length).trim();
+    if (!commandText) return;
 
     const now = Date.now();
     const last = lastCommandByUser.get(username);
-    if (last && last.command === content && now - last.at < 1500) return;
-    lastCommandByUser.set(username, { command: content, at: now });
+    if (last && last.command === commandText && now - last.at < 1500) return;
+    lastCommandByUser.set(username, { command: commandText, at: now });
 
-    const command = commands.find((entry) => entry.match(content));
+    const command = commands.find((entry) => entry.match(commandText));
     if (!command) return;
 
     try {
@@ -51,9 +56,9 @@ export function createCommandRouter(
         config,
         services,
         username,
-        message: content,
+        message: commandText,
       });
-      if (shouldResumePatrol(command.name, content, services)) {
+      if (shouldResumePatrol(command.name, commandText, services)) {
         services.patrol.startPatrol();
       }
     } catch (error) {

@@ -33,6 +33,15 @@ function getDroppedItemName(entity: any): string | null {
   return dropped.name;
 }
 
+function hashString(input: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 export function createFarmService(
   bot: Bot,
   movement: MovementService,
@@ -41,6 +50,7 @@ export function createFarmService(
   state: AppState,
 ): FarmService {
   const pickupSweepEveryHarvests = 8;
+  const botVarianceSeed = hashString(bot.username || "bot");
   let autoFarmEnabled = false;
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let autoFarmPatrolStep = 0;
@@ -222,7 +232,8 @@ export function createFarmService(
         config.farmScanRadius,
         config.farmScanMaxBlocks,
       );
-      const jobs = selectLocalSquareBatch(scannedJobs);
+      const cycleIndex = stats.cycles + 1;
+      const jobs = selectLocalSquareBatch(scannedJobs, cycleIndex);
 
       for (const job of jobs) {
         if (
@@ -363,7 +374,15 @@ export function createFarmService(
     movement.stop();
   }
 
-  function selectLocalSquareBatch(jobs: HarvestJob[]): HarvestJob[] {
+  function cycleNoise(key: string, cycleIndex: number): number {
+    const mixed = hashString(`${key}|${cycleIndex}|${botVarianceSeed}`);
+    return (mixed % 10000) / 10000;
+  }
+
+  function selectLocalSquareBatch(
+    jobs: HarvestJob[],
+    cycleIndex: number,
+  ): HarvestJob[] {
     if (!jobs.length) return [];
     const radius = config.farmBatchSquareRadius;
     const cellSize = radius * 2 + 1;
@@ -381,19 +400,38 @@ export function createFarmService(
       }
     }
 
-    const orderedGroups = Array.from(groups.values()).sort((a, b) => {
-      if (b.length !== a.length) return b.length - a.length;
-      const aDistance = bot.entity.position.distanceTo(a[0].position);
-      const bDistance = bot.entity.position.distanceTo(b[0].position);
-      return aDistance - bDistance;
-    });
+    const orderedGroupEntries = Array.from(groups.entries()).sort(
+      ([aKey, aGroup], [bKey, bGroup]) => {
+        const aDistance = bot.entity.position.distanceTo(aGroup[0].position);
+        const bDistance = bot.entity.position.distanceTo(bGroup[0].position);
+        const aScore =
+          aGroup.length * 100 - aDistance + cycleNoise(aKey, cycleIndex) * 35;
+        const bScore =
+          bGroup.length * 100 - bDistance + cycleNoise(bKey, cycleIndex) * 35;
+        return bScore - aScore;
+      },
+    );
 
     const selected: HarvestJob[] = [];
-    for (const group of orderedGroups) {
-      const orderedGroup = group.sort(
-        (a, b) =>
-          bot.entity.position.distanceTo(a.position) -
-          bot.entity.position.distanceTo(b.position),
+    for (const [groupKey, group] of orderedGroupEntries) {
+      const orderedGroup = [...group].sort(
+        (a, b) => {
+          const aDistance =
+            bot.entity.position.distanceTo(a.position) -
+            cycleNoise(
+              `${groupKey}:${a.position.x}:${a.position.z}`,
+              cycleIndex,
+            ) *
+              2.5;
+          const bDistance =
+            bot.entity.position.distanceTo(b.position) -
+            cycleNoise(
+              `${groupKey}:${b.position.x}:${b.position.z}`,
+              cycleIndex,
+            ) *
+              2.5;
+          return aDistance - bDistance;
+        },
       );
       for (const job of orderedGroup) {
         selected.push(job);
