@@ -23,11 +23,12 @@ export function createAfkService(
   }
 
   async function startAfk(position?: Position3): Promise<void> {
-    const targetPos: Position3 = position || config.afkPosition || {
-      x: Math.floor(bot.entity.position.x),
-      y: Math.floor(bot.entity.position.y),
-      z: Math.floor(bot.entity.position.z),
-    };
+    const targetPos: Position3 = position ||
+      config.afkPosition || {
+        x: Math.floor(bot.entity.position.x),
+        y: Math.floor(bot.entity.position.y),
+        z: Math.floor(bot.entity.position.z),
+      };
 
     state.mode = "afk";
     state.afkPosition = targetPos;
@@ -41,7 +42,9 @@ export function createAfkService(
       setTimeout(() => bot.setControlState("jump", false), 200);
       // slight yaw change to look like activity
       const deltaYaw = (Math.random() - 0.5) * 0.4;
-      try { bot.look(bot.entity.yaw + deltaYaw, bot.entity.pitch, false); } catch (e) {}
+      try {
+        bot.look(bot.entity.yaw + deltaYaw, bot.entity.pitch, false);
+      } catch (e) {}
     }, config.afkJumpIntervalMs);
   }
 
@@ -49,7 +52,7 @@ export function createAfkService(
     if (state.mode === "afk") {
       clearJumpTimer();
       movement.stop();
-      state.mode = "idle";
+      state.mode = "patrolling";
     }
   }
 

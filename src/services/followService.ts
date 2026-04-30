@@ -34,7 +34,7 @@ export function createFollowService(
     if (state.mode === "follow") {
       movement.stop();
       state.followTarget = null;
-      state.mode = "idle";
+      state.mode = "patrolling";
     }
   }
 

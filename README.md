@@ -3,10 +3,12 @@
 A modular Mineflayer bot for offline-mode servers with:
 
 - `follow me`, `come`, `afk`, `stop`
+- default patrol mode when no other task is active
 - manual farming (`farm`)
 - continuous farming (`autofarm on` / `autofarm off`)
 - optional automatic night sleeping (`autosleep on` / `autosleep off`)
 - damage-triggered evade mode (always switches to the latest attacker, resets 60s timer, then resumes prior task)
+- Discord webhook activity reports (join/leave events and online-player list command)
 - mature crop harvesting for wheat, carrots, potatoes
 - position-based same-crop replanting
 - chest deposit automation with seed reserves
@@ -35,6 +37,8 @@ The env template already includes:
 
 - `MINECRAFT_SERVER=serveraddress:port`
 - `MINECRAFT_AUTH=offline`
+- `AUTOFARM_ON_START=false`
+- `DISCORD_WEBHOOK_URL=`
 
 ## Commands
 
@@ -49,6 +53,7 @@ The env template already includes:
 - `autofarm off`
 - `autosleep on`
 - `autosleep off`
+- `discord players`
 - `help`
 
 `sleep` and `autosleep` use the current configured spawn bed and resume the previous activity after wake-up.

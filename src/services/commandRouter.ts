@@ -36,6 +36,7 @@ export function createCommandRouter(
 
     try {
       services.evade.cancelEvade(false);
+      services.patrol.stopPatrol();
       // if bot is AFK and someone issues another command, abandon AFK first
       if (
         command.name !== "afk" &&
@@ -52,10 +53,32 @@ export function createCommandRouter(
         username,
         message: content,
       });
+      if (shouldResumePatrol(command.name, content, services)) {
+        services.patrol.startPatrol();
+      }
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       logger.warn(`Command '${command.name}' failed`, text);
+      if (stateAllowsPatrol(services)) {
+        services.patrol.startPatrol();
+      }
     }
+  }
+
+  function shouldResumePatrol(
+    commandName: string,
+    content: string,
+    servicesRef: Services,
+  ): boolean {
+    if (!stateAllowsPatrol(servicesRef)) return false;
+    if (commandName === "follow" || commandName === "afk" || commandName === "sleep")
+      return false;
+    if (commandName === "autofarm" && content === "autofarm on") return false;
+    return true;
+  }
+
+  function stateAllowsPatrol(servicesRef: Services): boolean {
+    return !servicesRef.farm.isAutoFarmEnabled() && !servicesRef.evade.isEvading();
   }
 
   return { handleChat };

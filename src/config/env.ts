@@ -17,6 +17,17 @@ function parseCoordinate(name: string): number | null {
   return Math.floor(value);
 }
 
+function parseBoolean(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return defaultValue;
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "1" || normalized === "true" || normalized === "yes")
+    return true;
+  if (normalized === "0" || normalized === "false" || normalized === "no")
+    return false;
+  throw new Error(`Invalid ${name}. Expected true/false.`);
+}
+
 const spawnBedX = parseCoordinate("SPAWN_BED_X");
 const spawnBedY = parseCoordinate("SPAWN_BED_Y");
 const spawnBedZ = parseCoordinate("SPAWN_BED_Z");
@@ -58,6 +69,8 @@ const config: AppConfig = {
   reconnectMaxDelayMs: 60 * 1000,
   trustedPlayers: [],
   commandPrefix: "",
+  autoFarmOnStart: parseBoolean("AUTOFARM_ON_START", false),
+  discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL?.trim() || "",
 };
 
 export default config;

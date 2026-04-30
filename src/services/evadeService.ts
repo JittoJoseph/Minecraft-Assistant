@@ -8,6 +8,7 @@ import type {
   FollowService,
   Logger,
   MovementService,
+  PatrolService,
 } from "../types";
 import {
   createActivityLifecycle,
@@ -31,6 +32,7 @@ export function createEvadeService(
   follow: FollowService,
   afk: AfkService,
   farm: FarmService,
+  patrol: PatrolService,
 ): EvadeService {
   let resumeAfterEvade: ActivitySnapshot | null = null;
   let attackerRef: AttackerRef | null = null;
@@ -44,6 +46,7 @@ export function createEvadeService(
     follow,
     afk,
     farm,
+    patrol,
   );
 
   function clearTimers(): void {
@@ -140,7 +143,7 @@ export function createEvadeService(
     attackerRef = null;
     evasionEndsAt = 0;
     if (state.mode === "evading") {
-      state.mode = "idle";
+      state.mode = "patrolling";
     }
 
     if (resumePrevious && snapshot) {

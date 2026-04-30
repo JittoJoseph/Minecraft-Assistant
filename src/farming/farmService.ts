@@ -108,13 +108,21 @@ export function createFarmService(
     state.cropMemory.set(key, job.cropType);
 
     const currentBlock = bot.blockAt(job.position);
-    if (!currentBlock || !isMatureCrop(currentBlock) || currentBlock.name !== job.blockName) {
+    if (
+      !currentBlock ||
+      !isMatureCrop(currentBlock) ||
+      currentBlock.name !== job.blockName
+    ) {
       return false;
     }
 
     await movement.goNear(job.position, 1);
     const targetBlock = bot.blockAt(job.position);
-    if (!targetBlock || !isMatureCrop(targetBlock) || targetBlock.name !== job.blockName) {
+    if (
+      !targetBlock ||
+      !isMatureCrop(targetBlock) ||
+      targetBlock.name !== job.blockName
+    ) {
       return false;
     }
     if (bot.tool?.equipForBlock) {
@@ -183,7 +191,11 @@ export function createFarmService(
     for (const drop of nearbyDrops) {
       if (interruptRequested) break;
       try {
-        await movement.goNear(drop.position, 1, Math.floor(config.movementTimeoutMs / 2));
+        await movement.goNear(
+          drop.position,
+          1,
+          Math.floor(config.movementTimeoutMs / 2),
+        );
       } catch (error) {
         if (isInterruptedMovementError(error)) continue;
         logger.debug(
@@ -268,7 +280,7 @@ export function createFarmService(
       );
     } finally {
       state.isFarming = false;
-      state.mode = "idle";
+      state.mode = "patrolling";
     }
     return harvestedThisCycle;
   }

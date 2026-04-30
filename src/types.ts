@@ -37,10 +37,12 @@ export interface AppConfig {
   reconnectMaxDelayMs: number;
   trustedPlayers: string[];
   commandPrefix: string;
+  autoFarmOnStart: boolean;
+  discordWebhookUrl: string;
 }
 
 export interface AppState {
-  mode: "idle" | "follow" | "afk" | "farming" | "sleeping" | "evading";
+  mode: "patrolling" | "follow" | "afk" | "farming" | "sleeping" | "evading";
   followTarget: string | null;
   afkPosition: Position3 | null;
   spawnBedPosition: Position3 | null;
@@ -106,6 +108,18 @@ export interface EvadeService {
   isEvading: () => boolean;
 }
 
+export interface PatrolService {
+  startPatrol: (anchor?: Position3) => boolean;
+  stopPatrol: () => boolean;
+  isPatrolling: () => boolean;
+}
+
+export interface DiscordService {
+  notifyPlayerJoined: (username: string) => Promise<void>;
+  notifyPlayerLeft: (username: string) => Promise<void>;
+  sendOnlinePlayers: (requestedBy: string, players: string[]) => Promise<void>;
+}
+
 export interface Services {
   movement: MovementService;
   follow: FollowService;
@@ -113,6 +127,8 @@ export interface Services {
   farm: FarmService;
   sleep: SleepService;
   evade: EvadeService;
+  patrol: PatrolService;
+  discord: DiscordService;
 }
 
 export interface CommandContext {

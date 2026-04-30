@@ -9,8 +9,8 @@ const stop: CommandHandler = {
     ctx.services.farm.interruptCurrentCycle();
     ctx.services.follow.stopFollow();
     ctx.services.afk.stopAfk();
-    ctx.services.movement.stop();
-    ctx.bot.chat("Stopped current task.");
+    ctx.services.patrol.startPatrol();
+    ctx.bot.chat("Stopped current task. Patrolling.");
   },
 };
 

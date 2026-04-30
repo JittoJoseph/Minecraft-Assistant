@@ -5,6 +5,7 @@ import type {
   FollowService,
   Logger,
   MovementService,
+  PatrolService,
   Position3,
 } from "../types";
 
@@ -28,6 +29,7 @@ export function createActivityLifecycle(
   follow: FollowService,
   afk: AfkService,
   farm: FarmService,
+  patrol: PatrolService,
 ) {
   function snapshotActivity(): ActivitySnapshot {
     return {
@@ -40,6 +42,7 @@ export function createActivityLifecycle(
   }
 
   function pauseActivity(): void {
+    patrol.stopPatrol();
     follow.stopFollow();
     afk.stopAfk();
     farm.stopAutoFarm();
@@ -72,7 +75,9 @@ export function createActivityLifecycle(
     }
     if (snapshot.mode === "afk") {
       await afk.startAfk(snapshot.afkPosition || undefined);
+      return;
     }
+    patrol.startPatrol();
   }
 
   return {

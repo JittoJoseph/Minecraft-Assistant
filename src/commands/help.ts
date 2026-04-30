@@ -5,7 +5,7 @@ const help: CommandHandler = {
   match: (msg) => msg === "help",
   async execute(ctx) {
     ctx.bot.chat(
-      "Commands: follow me | come | afk | stop | setspawnpoint | sleep | farm | autofarm on/off | autosleep on/off | unloadinventory | listitems | help",
+      "Commands: follow me | come | afk | stop | setspawnpoint | sleep | farm | autofarm on/off | autosleep on/off | discord players | unloadinventory | listitems | help",
     );
   },
 };

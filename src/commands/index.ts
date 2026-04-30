@@ -3,6 +3,7 @@ import afk from "./afk";
 import autofarm from "./autofarm";
 import autosleep from "./autosleep";
 import come from "./come";
+import discordplayers from "./discordplayers";
 import farm from "./farm";
 import follow from "./follow";
 import help from "./help";
@@ -20,6 +21,7 @@ const commands: CommandHandler[] = [
   farm,
   autofarm,
   autosleep,
+  discordplayers,
   listitems,
   setspawnpoint,
   sleep,

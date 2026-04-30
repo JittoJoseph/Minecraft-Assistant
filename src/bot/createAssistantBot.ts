@@ -8,9 +8,11 @@ import config from "../config/env";
 import { createFarmService } from "../farming/farmService";
 import { createAfkService } from "../services/afkService";
 import { createCommandRouter } from "../services/commandRouter";
+import { createDiscordService } from "../services/discordService";
 import { createEvadeService } from "../services/evadeService";
 import { createFollowService } from "../services/followService";
 import { createMovementService } from "../services/movement";
+import { createPatrolService } from "../services/patrolService";
 import { createSleepService } from "../services/sleepService";
 import type { AppState, Position3, Services } from "../types";
 import logger from "../utils/logger";
@@ -36,7 +38,7 @@ function safeLoadPlugin(bot: any, pluginCandidate: any, name: string): void {
 
 function createState(defaultSpawnBed: Position3 | null): AppState {
   return {
-    mode: "idle",
+    mode: "patrolling",
     followTarget: null,
     afkPosition: null,
     spawnBedPosition: defaultSpawnBed,
@@ -46,7 +48,7 @@ function createState(defaultSpawnBed: Position3 | null): AppState {
 }
 
 function resetTransientState(state: AppState): void {
-  state.mode = "idle";
+  state.mode = "patrolling";
   state.followTarget = null;
   state.isFarming = false;
 }
@@ -101,6 +103,7 @@ export function createAssistantBot(): void {
 
       const mcData = minecraftData(bot.version);
       const movement = createMovementService(bot, mcData, config);
+      const patrol = createPatrolService(bot, movement, config, logger, state);
       const follow = createFollowService(bot, movement, config, logger, state);
       const afk = createAfkService(bot, movement, config, state);
       const farm = createFarmService(bot, movement, config, logger, state);
@@ -113,6 +116,7 @@ export function createAssistantBot(): void {
         follow,
         afk,
         farm,
+        patrol,
       );
       const evade = createEvadeService(
         bot,
@@ -122,8 +126,10 @@ export function createAssistantBot(): void {
         follow,
         afk,
         farm,
+        patrol,
       );
-      const services = { movement, follow, afk, farm, sleep, evade };
+      const discord = createDiscordService(config.discordWebhookUrl, bot.username, logger);
+      const services = { movement, follow, afk, farm, sleep, evade, patrol, discord };
       activeServices = services;
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
@@ -213,6 +219,28 @@ export function createAssistantBot(): void {
         });
       });
 
+      bot.on("playerJoined", (player) => {
+        const username = typeof player?.username === "string" ? player.username : "";
+        if (!username || username === bot.username) return;
+        services.discord.notifyPlayerJoined(username).catch((error: unknown) => {
+          logger.warn(
+            "Discord join notification failed.",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+      });
+
+      bot.on("playerLeft", (player) => {
+        const username = typeof player?.username === "string" ? player.username : "";
+        if (!username || username === bot.username) return;
+        services.discord.notifyPlayerLeft(username).catch((error: unknown) => {
+          logger.warn(
+            "Discord leave notification failed.",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+      });
+
       bot.on("entityHurt", (entity, source) => {
         if (entity.id !== bot.entity.id) return;
         const attacker =
@@ -263,11 +291,19 @@ export function createAssistantBot(): void {
         };
       }
 
-      if (shouldResumeAutoFarmAfterReconnect) {
+      const shouldStartAutoFarm =
+        shouldResumeAutoFarmAfterReconnect || config.autoFarmOnStart;
+      if (shouldStartAutoFarm) {
         shouldResumeAutoFarmAfterReconnect = false;
         if (services.farm.startAutoFarm()) {
-          logger.warn("Resuming autofarm after reconnect.");
+          logger.warn(
+            config.autoFarmOnStart
+              ? "Autofarm started from AUTOFARM_ON_START."
+              : "Resuming autofarm after reconnect.",
+          );
         }
+      } else {
+        services.patrol.startPatrol();
       }
     });
 
@@ -288,6 +324,7 @@ export function createAssistantBot(): void {
         activeServices.farm.interruptCurrentCycle();
         activeServices.afk.stopAfk();
         activeServices.follow.stopFollow();
+        activeServices.patrol.stopPatrol();
         activeServices.movement.stop();
       }
       activeServices = null;

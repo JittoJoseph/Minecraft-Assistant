@@ -8,6 +8,7 @@ import type {
   FollowService,
   Logger,
   MovementService,
+  PatrolService,
   Position3,
   SleepService,
 } from "../types";
@@ -34,6 +35,7 @@ export function createSleepService(
   follow: FollowService,
   afk: AfkService,
   farm: FarmService,
+  patrol: PatrolService,
 ): SleepService {
   let autoSleepEnabled = true;
   let sleepInProgress = false;
@@ -46,13 +48,14 @@ export function createSleepService(
     follow,
     afk,
     farm,
+    patrol,
   );
 
   bot.on("wake", () => {
     const snapshot = resumeAfterWake;
     resumeAfterWake = null;
     if (!snapshot) return;
-    state.mode = "idle";
+    state.mode = "patrolling";
     activity
       .resumeActivity(snapshot, {
         farmTrigger: "sleep_resume",
