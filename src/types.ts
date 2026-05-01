@@ -112,6 +112,7 @@ export interface GearService {
 
 export interface CombatService {
   startRetaliationFromAttacker: (attacker: any, reason?: string) => boolean;
+  retaliateFromDamageEvent: (source?: any, reason?: string) => boolean;
   cancelCombat: (resumePrevious?: boolean) => boolean;
   isInCombat: () => boolean;
 }

@@ -105,10 +105,32 @@ export function createCombatService(
   );
 
   function isHostileMob(attacker: any): boolean {
-    if (!attacker || attacker.type !== "mob") return false;
+    if (!attacker) return false;
+    const entityType = typeof attacker.type === "string" ? attacker.type : "";
+    if (
+      entityType &&
+      entityType !== "mob" &&
+      entityType !== "hostile" &&
+      entityType !== "monster"
+    ) {
+      return false;
+    }
     const name = typeof attacker.name === "string" ? attacker.name : "";
     if (!name || !HOSTILE_MOBS.has(name)) return false;
     return true;
+  }
+
+  function findNearestHostile(maxDistance: number): any | null {
+    let nearest: any | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of Object.values(bot.entities) as any[]) {
+      if (!isHostileMob(candidate) || !candidate?.position) continue;
+      const dist = bot.entity.position.distanceTo(candidate.position);
+      if (dist > maxDistance || dist >= nearestDistance) continue;
+      nearest = candidate;
+      nearestDistance = dist;
+    }
+    return nearest;
   }
 
   function resolveTarget(): any | null {
@@ -249,12 +271,20 @@ export function createCombatService(
     return true;
   }
 
+  function retaliateFromDamageEvent(source?: any, reason = "unknown"): boolean {
+    if (source && startRetaliationFromAttacker(source, reason)) return true;
+    const nearbyHostile = findNearestHostile(6.5);
+    if (!nearbyHostile) return false;
+    return startRetaliationFromAttacker(nearbyHostile, `${reason}_nearby`);
+  }
+
   function isInCombat(): boolean {
     return state.mode === "combat";
   }
 
   return {
     startRetaliationFromAttacker,
+    retaliateFromDamageEvent,
     cancelCombat,
     isInCombat,
   };

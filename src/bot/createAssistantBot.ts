@@ -147,6 +147,7 @@ export function createAssistantBot(): void {
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
       const recentEntitySwingAt = new Map<number, number>();
+      let lastKnownHealth = bot.health;
 
       function inferDamageSource(): any | null {
         const now = Date.now();
@@ -156,15 +157,20 @@ export function createAssistantBot(): void {
           if (!candidate || candidate.id === bot.entity.id || !candidate.position) {
             continue;
           }
-          if (candidate.type !== "player" && candidate.type !== "mob") {
+          if (
+            candidate.type !== "player" &&
+            candidate.type !== "mob" &&
+            candidate.type !== "hostile" &&
+            candidate.type !== "monster"
+          ) {
             continue;
           }
           const swungAt = recentEntitySwingAt.get(candidate.id) || 0;
-          if (now - swungAt > 1500) continue;
           const distance = bot.entity.position.distanceTo(candidate.position);
-          if (distance > 4.5 || distance >= bestDistance) continue;
+          const scoredDistance = now - swungAt <= 1500 ? distance : distance + 2;
+          if (distance > 6.5 || scoredDistance >= bestDistance) continue;
           bestCandidate = candidate;
-          bestDistance = distance;
+          bestDistance = scoredDistance;
         }
         return bestCandidate;
       }
@@ -258,8 +264,14 @@ export function createAssistantBot(): void {
         if (entity.id !== bot.entity.id) return;
         const attacker =
           source && source.id !== bot.entity.id ? source : inferDamageSource();
-        if (!attacker) return;
-        combat.startRetaliationFromAttacker(attacker, "entity_hurt");
+        combat.retaliateFromDamageEvent(attacker, "entity_hurt");
+      });
+
+      bot.on("health", () => {
+        if (bot.health < lastKnownHealth) {
+          combat.retaliateFromDamageEvent(undefined, "health_drop");
+        }
+        lastKnownHealth = bot.health;
       });
 
       bot.on("entitySwingArm", (entity) => {
