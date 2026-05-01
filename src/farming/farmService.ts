@@ -19,6 +19,22 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const HARVEST_TOOL_PRIORITY = [
+  "netherite_hoe",
+  "diamond_hoe",
+  "iron_hoe",
+  "stone_hoe",
+  "golden_hoe",
+  "wooden_hoe",
+] as const;
+
+function harvestToolScore(itemName: string): number {
+  const rank = HARVEST_TOOL_PRIORITY.indexOf(
+    itemName as (typeof HARVEST_TOOL_PRIORITY)[number],
+  );
+  return rank < 0 ? -1 : HARVEST_TOOL_PRIORITY.length - rank;
+}
+
 function isInterruptedMovementError(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error);
   return (
@@ -139,9 +155,7 @@ export function createFarmService(
     ) {
       return false;
     }
-    if (bot.tool?.equipForBlock) {
-      await bot.tool.equipForBlock(targetBlock, {});
-    }
+    await equipBestHarvestTool();
     await bot.dig(targetBlock, true);
     await bot.waitForTicks(4);
     stats.harvested += 1;
@@ -155,6 +169,31 @@ export function createFarmService(
       logger.warn(`Seed shortage for ${cropType} at ${key}`);
     }
     return true;
+  }
+
+  async function equipBestHarvestTool(): Promise<void> {
+    const heldName = bot.heldItem?.name;
+    if (heldName && harvestToolScore(heldName) >= 0) {
+      return;
+    }
+
+    const bestHoe = bot.inventory
+      .items()
+      .filter((item) => harvestToolScore(item.name) >= 0)
+      .sort(
+        (a, b) =>
+          harvestToolScore(b.name) - harvestToolScore(a.name),
+      )[0];
+    if (!bestHoe) return;
+
+    try {
+      await bot.equip(bestHoe, "hand");
+    } catch (error) {
+      logger.debug(
+        "Could not equip harvest tool.",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   async function maybeDeposit(

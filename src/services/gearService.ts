@@ -98,6 +98,11 @@ export function createGearService(
     return true;
   }
 
+  async function stowWeaponFromHand(): Promise<void> {
+    if (!bot.heldItem || weaponScore(bot.heldItem.name) < 0) return;
+    await bot.unequip("hand");
+  }
+
   async function equipBestArmorAndShield(): Promise<void> {
     const items = bot.inventory.items();
     for (const [destination, priorities] of Object.entries(ARMOR_PRIORITY) as Array<
@@ -195,8 +200,8 @@ export function createGearService(
         }
       }
 
-      await equipBestWeapon();
       await equipBestArmorAndShield();
+      await stowWeaponFromHand();
       return hasUsableWeapon();
     } catch (error) {
       logger.warn(
@@ -210,6 +215,7 @@ export function createGearService(
   return {
     ensureCombatGear,
     equipBestWeapon,
+    stowWeaponFromHand,
     hasUsableWeapon,
   };
 }

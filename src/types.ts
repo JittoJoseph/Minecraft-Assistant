@@ -106,6 +106,7 @@ export interface SleepService {
 export interface GearService {
   ensureCombatGear: (trigger?: string) => Promise<boolean>;
   equipBestWeapon: () => Promise<boolean>;
+  stowWeaponFromHand: () => Promise<void>;
   hasUsableWeapon: () => boolean;
 }
 

@@ -148,6 +148,7 @@ export function createCombatService(
           );
         });
     }
+    gear.stowWeaponFromHand().catch(() => undefined);
     return true;
   }
 
