@@ -130,6 +130,7 @@ export function createAssistantBot(): void {
         farm,
         patrol,
         gear,
+        config.autoFarmOnStart,
       );
       const discord = createDiscordService(config.discordWebhookUrl, bot.username, logger);
       const services = {
@@ -146,34 +147,7 @@ export function createAssistantBot(): void {
       activeServices = services;
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
-      const recentEntitySwingAt = new Map<number, number>();
       let lastKnownHealth = bot.health;
-
-      function inferDamageSource(): any | null {
-        const now = Date.now();
-        let bestCandidate: any | null = null;
-        let bestDistance = Number.POSITIVE_INFINITY;
-        for (const candidate of Object.values(bot.entities) as any[]) {
-          if (!candidate || candidate.id === bot.entity.id || !candidate.position) {
-            continue;
-          }
-          if (
-            candidate.type !== "player" &&
-            candidate.type !== "mob" &&
-            candidate.type !== "hostile" &&
-            candidate.type !== "monster"
-          ) {
-            continue;
-          }
-          const swungAt = recentEntitySwingAt.get(candidate.id) || 0;
-          const distance = bot.entity.position.distanceTo(candidate.position);
-          const scoredDistance = now - swungAt <= 1500 ? distance : distance + 2;
-          if (distance > 6.5 || scoredDistance >= bestDistance) continue;
-          bestCandidate = candidate;
-          bestDistance = scoredDistance;
-        }
-        return bestCandidate;
-      }
 
       if (anyBot.autoEat) {
         const autoEat = anyBot.autoEat as {
@@ -262,8 +236,7 @@ export function createAssistantBot(): void {
 
       bot.on("entityHurt", (entity, source) => {
         if (entity.id !== bot.entity.id) return;
-        const attacker =
-          source && source.id !== bot.entity.id ? source : inferDamageSource();
+        const attacker = source && source.id !== bot.entity.id ? source : undefined;
         combat.retaliateFromDamageEvent(attacker, "entity_hurt");
       });
 
@@ -272,17 +245,6 @@ export function createAssistantBot(): void {
           combat.retaliateFromDamageEvent(undefined, "health_drop");
         }
         lastKnownHealth = bot.health;
-      });
-
-      bot.on("entitySwingArm", (entity) => {
-        if (!entity?.id || entity.id === bot.entity.id) return;
-        const now = Date.now();
-        recentEntitySwingAt.set(entity.id, now);
-        for (const [entityId, swungAt] of recentEntitySwingAt.entries()) {
-          if (now - swungAt > 5000) {
-            recentEntitySwingAt.delete(entityId);
-          }
-        }
       });
 
       bot._client.on("entity_velocity", (packet: any) => {

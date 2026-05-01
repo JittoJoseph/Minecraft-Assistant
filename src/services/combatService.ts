@@ -9,12 +9,7 @@ import type {
   Logger,
   MovementService,
   PatrolService,
-  Position3,
 } from "../types";
-import {
-  createActivityLifecycle,
-  type ActivitySnapshot,
-} from "./activityLifecycle";
 
 const HOSTILE_MOBS = new Set([
   "blaze",
@@ -61,21 +56,6 @@ function isInterruptedMovementError(error: unknown): boolean {
   );
 }
 
-function distance(a: Position3, b: Position3): number {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  const dz = a.z - b.z;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
-}
-
-function currentBlockPosition(bot: Bot): Position3 {
-  return {
-    x: Math.floor(bot.entity.position.x),
-    y: Math.floor(bot.entity.position.y),
-    z: Math.floor(bot.entity.position.z),
-  };
-}
-
 function isAliveTarget(entity: any): boolean {
   if (!entity || !entity.position) return false;
   if (entity.isValid === false) return false;
@@ -93,22 +73,12 @@ export function createCombatService(
   farm: FarmService,
   patrol: PatrolService,
   gear: GearService,
+  resumeAutoFarmByDefault: boolean,
 ): CombatService {
-  let resumeAfterCombat: ActivitySnapshot | null = null;
   let combatTargetId: number | null = null;
-  let combatOrigin: Position3 | null = null;
   let combatEndsAt = 0;
   let combatGeneration = 0;
   let targetLostStreak = 0;
-  const activity = createActivityLifecycle(
-    state,
-    logger,
-    movement,
-    follow,
-    afk,
-    farm,
-    patrol,
-  );
 
   function isHostileMob(attacker: any): boolean {
     if (!attacker) return false;
@@ -144,49 +114,84 @@ export function createCombatService(
     return bot.entities[combatTargetId] || null;
   }
 
+  function setAutoEatEnabled(enabled: boolean): void {
+    const autoEat = (bot as any).autoEat as
+      | {
+          enableAuto?: () => void;
+          enable?: () => void;
+          disableAuto?: () => void;
+          disable?: () => void;
+        }
+      | undefined;
+    if (!autoEat) return;
+    try {
+      if (enabled) {
+        if (typeof autoEat.enableAuto === "function") {
+          autoEat.enableAuto();
+          return;
+        }
+        if (typeof autoEat.enable === "function") {
+          autoEat.enable();
+          return;
+        }
+        return;
+      }
+      if (typeof autoEat.disableAuto === "function") {
+        autoEat.disableAuto();
+      } else if (typeof autoEat.disable === "function") {
+        autoEat.disable();
+      }
+      bot.deactivateItem();
+    } catch (error) {
+      logger.debug(
+        "Could not toggle auto-eat state.",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
+  function pauseActivitiesForCombat(): void {
+    patrol.stopPatrol();
+    follow.stopFollow();
+    afk.stopAfk();
+    farm.stopAutoFarm();
+    farm.interruptCurrentCycle();
+    movement.stop();
+  }
+
+  function restartDefaultActivitiesAfterCombat(): void {
+    movement.stop();
+    follow.stopFollow();
+    afk.stopAfk();
+    patrol.stopPatrol();
+    farm.stopAutoFarm();
+    farm.interruptCurrentCycle();
+    state.mode = "patrolling";
+    if (resumeAutoFarmByDefault) {
+      farm.startAutoFarm();
+      return;
+    }
+    patrol.startPatrol();
+  }
+
   function cleanupCombatState(): void {
     combatTargetId = null;
-    combatOrigin = null;
     combatEndsAt = 0;
     targetLostStreak = 0;
   }
 
   function cancelCombat(resumePrevious = false): boolean {
-    if (state.mode !== "combat" && !resumeAfterCombat) return false;
+    if (state.mode !== "combat" && combatTargetId === null) return false;
     combatGeneration += 1;
     movement.stop();
 
-    const snapshot = resumeAfterCombat;
-    resumeAfterCombat = null;
     cleanupCombatState();
     if (state.mode === "combat") {
       state.mode = "patrolling";
     }
 
-    if (resumePrevious && snapshot) {
-      if (snapshot.autoFarmWasEnabled) {
-        const resumed = farm.startAutoFarm();
-        if (!resumed && !farm.isAutoFarmEnabled()) {
-          setTimeout(() => {
-            if (state.mode !== "combat" && !farm.isAutoFarmEnabled()) {
-              farm.startAutoFarm();
-            }
-          }, 200);
-        }
-      } else {
-        activity
-          .resumeActivity(snapshot, {
-            farmTrigger: "combat_resume",
-            followResumeFailureMessage: "Could not resume follow after combat.",
-          })
-          .catch((error: unknown) => {
-            logger.error(
-              "Failed to resume activity after combat.",
-              error instanceof Error ? error.message : String(error),
-            );
-          });
-      }
-    }
+    if (resumePrevious) restartDefaultActivitiesAfterCombat();
+    setAutoEatEnabled(true);
     gear.stowWeaponFromHand().catch(() => undefined);
     return true;
   }
@@ -258,14 +263,11 @@ export function createCombatService(
     const isNewCombat = state.mode !== "combat";
     combatTargetId = attackerId;
     combatEndsAt = Date.now() + COMBAT_MAX_MS;
-    if (!combatOrigin) {
-      combatOrigin = currentBlockPosition(bot);
-    }
 
     if (isNewCombat) {
-      resumeAfterCombat = activity.snapshotActivity();
-      activity.pauseActivity();
+      pauseActivitiesForCombat();
       state.mode = "combat";
+      setAutoEatEnabled(false);
       logger.warn(`Retaliating against hostile attacker (${reason}): ${attacker.name || `entity#${attacker.id}`}.`);
       gear.ensureCombatGear("combat_start").catch(() => undefined);
       combatGeneration += 1;
