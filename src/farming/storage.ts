@@ -10,6 +10,14 @@ const STORAGE_MOVE_TIMEOUT_CAP_MS = 7 * 1000;
 const STORAGE_OPEN_TIMEOUT_MS = 3500;
 const WHEAT_SEEDS_ITEM_NAME = "wheat_seeds";
 const RESERVED_SEED_ITEMS = new Set(Object.values(CROP_REPLANT_ITEM));
+const COMBAT_GEAR_SUFFIXES = [
+  "_sword",
+  "_axe",
+  "_helmet",
+  "_chestplate",
+  "_leggings",
+  "_boots",
+];
 
 type StorageContainerKind = "chest" | "barrel";
 
@@ -50,6 +58,11 @@ export function usedInventorySlots(bot: Bot): number {
 
 function shouldDepositItem(itemName: string): boolean {
   return DEPOSITABLE_CROP_ITEMS.has(itemName);
+}
+
+function isCombatGearItem(itemName: string): boolean {
+  if (itemName === "shield") return true;
+  return COMBAT_GEAR_SUFFIXES.some((suffix) => itemName.endsWith(suffix));
 }
 
 function keepCountForItem(config: AppConfig, itemName: string): number {
@@ -221,6 +234,7 @@ function buildDepositPlan(
   const perItemTotals = new Map<string, DepositPlan>();
   for (const item of bot.inventory.items()) {
     if (!includeAllItems && !shouldDepositItem(item.name)) continue;
+    if (isCombatGearItem(item.name)) continue;
 
     const existing = perItemTotals.get(item.name);
     if (existing) {

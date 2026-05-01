@@ -4,6 +4,7 @@ import type {
   AppState,
   FarmService,
   FarmStats,
+  GearService,
   Logger,
   MovementService,
   Position3,
@@ -48,6 +49,7 @@ export function createFarmService(
   config: AppConfig,
   logger: Logger,
   state: AppState,
+  gear: GearService,
 ): FarmService {
   const pickupSweepEveryHarvests = 8;
   const botFarmLanes = 5;
@@ -158,7 +160,7 @@ export function createFarmService(
   async function maybeDeposit(
     options: { force?: boolean; keepReserve?: boolean } = {},
   ): Promise<boolean> {
-    if (unloadInProgress) return false;
+    if (unloadInProgress && options.force !== true) return false;
     const force = options.force === true;
     const keepReserve = options.keepReserve !== false;
     const used = usedInventorySlots(bot);
@@ -174,6 +176,7 @@ export function createFarmService(
     });
     if (result.deposited) {
       lastDepositAt = Date.now();
+      await gear.ensureCombatGear("deposit_cycle");
       return true;
     }
     if (
@@ -221,6 +224,7 @@ export function createFarmService(
 
   async function runFarmCycle(triggeredBy = "manual"): Promise<number> {
     if (state.isFarming || unloadInProgress) return 0;
+    await gear.ensureCombatGear("farm_cycle_start");
     state.isFarming = true;
     state.mode = "farming";
     interruptRequested = false;
@@ -277,6 +281,7 @@ export function createFarmService(
         await walkToNearbyCropDrops();
       }
       await maybeDeposit();
+      await gear.ensureCombatGear("farm_cycle_end");
 
       stats.cycles += 1;
       logger.info(`Farm cycle complete (${triggeredBy}).`, {
@@ -324,6 +329,12 @@ export function createFarmService(
   });
 
   bot.on("spawn", () => {
+    gear.ensureCombatGear("respawn").catch((error: unknown) => {
+      logger.warn(
+        "Respawn gear check failed.",
+        error instanceof Error ? error.message : String(error),
+      );
+    });
     if (!pendingRespawnRecovery) return;
     setTimeout(() => {
       recoverFromRespawn().catch((error: unknown) => {
@@ -514,15 +525,7 @@ export function createFarmService(
 
     unloadInProgress = true;
     try {
-      const result = await depositToChest(bot, config, movement, logger, {
-        keepReserve: true,
-        includeAllItems: true,
-      });
-      if (result.deposited) {
-        lastDepositAt = Date.now();
-        return true;
-      }
-      return false;
+      return await maybeDeposit({ force: true, keepReserve: true });
     } finally {
       unloadInProgress = false;
     }

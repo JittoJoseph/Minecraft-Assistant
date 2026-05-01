@@ -7,7 +7,7 @@ A modular Mineflayer bot for offline-mode servers with:
 - manual farming (`farm`)
 - continuous farming (`autofarm on` / `autofarm off`)
 - optional automatic night sleeping (`autosleep on` / `autosleep off`)
-- damage-triggered evade mode (always switches to the latest attacker, resets 60s timer, then resumes prior task)
+- reactive retaliation mode (only attacks hostile mobs that directly damage the bot, then resumes prior task)
 - Discord webhook activity reports (join/leave events and online-player list command)
 - mature crop harvesting for wheat, carrots, potatoes
 - position-based same-crop replanting
@@ -39,6 +39,7 @@ The env template already includes:
 - `MINECRAFT_AUTH=offline`
 - `COMMAND_PREFIX=bot`
 - `DEPOSIT_POINT=-106,52,124`
+- `GEAR_CHEST_POSITION=-91,64,134`
 - `AUTOFARM_ON_START=false`
 - `DISCORD_WEBHOOK_URL=`
 

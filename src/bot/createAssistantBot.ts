@@ -7,10 +7,11 @@ const autoEatModule = require("mineflayer-auto-eat");
 import config from "../config/env";
 import { createFarmService } from "../farming/farmService";
 import { createAfkService } from "../services/afkService";
+import { createCombatService } from "../services/combatService";
 import { createCommandRouter } from "../services/commandRouter";
 import { createDiscordService } from "../services/discordService";
-import { createEvadeService } from "../services/evadeService";
 import { createFollowService } from "../services/followService";
+import { createGearService } from "../services/gearService";
 import { createMovementService } from "../services/movement";
 import { createPatrolService } from "../services/patrolService";
 import { createSleepService } from "../services/sleepService";
@@ -106,7 +107,8 @@ export function createAssistantBot(): void {
       const patrol = createPatrolService(bot, movement, config, logger, state);
       const follow = createFollowService(bot, movement, config, logger, state);
       const afk = createAfkService(bot, movement, config, state);
-      const farm = createFarmService(bot, movement, config, logger, state);
+      const gear = createGearService(bot, config, movement, logger);
+      const farm = createFarmService(bot, movement, config, logger, state, gear);
       const sleep = createSleepService(
         bot,
         config,
@@ -118,7 +120,7 @@ export function createAssistantBot(): void {
         farm,
         patrol,
       );
-      const evade = createEvadeService(
+      const combat = createCombatService(
         bot,
         logger,
         state,
@@ -127,9 +129,20 @@ export function createAssistantBot(): void {
         afk,
         farm,
         patrol,
+        gear,
       );
       const discord = createDiscordService(config.discordWebhookUrl, bot.username, logger);
-      const services = { movement, follow, afk, farm, sleep, evade, patrol, discord };
+      const services = {
+        movement,
+        follow,
+        afk,
+        farm,
+        sleep,
+        gear,
+        combat,
+        patrol,
+        discord,
+      };
       activeServices = services;
       const commandRouter = createCommandRouter(bot, config, logger, services);
       const anyBot = bot as any;
@@ -246,7 +259,7 @@ export function createAssistantBot(): void {
         const attacker =
           source && source.id !== bot.entity.id ? source : inferDamageSource();
         if (!attacker) return;
-        evade.startEvadeFromAttacker(attacker, "entity_hurt");
+        combat.startRetaliationFromAttacker(attacker, "entity_hurt");
       });
 
       bot.on("entitySwingArm", (entity) => {
@@ -291,6 +304,13 @@ export function createAssistantBot(): void {
         };
       }
 
+      services.gear.ensureCombatGear("spawn").catch((error: unknown) => {
+        logger.warn(
+          "Spawn gear check failed.",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+
       const shouldStartAutoFarm =
         shouldResumeAutoFarmAfterReconnect || config.autoFarmOnStart;
       if (shouldStartAutoFarm) {
@@ -319,7 +339,7 @@ export function createAssistantBot(): void {
         shouldResumeAutoFarmAfterReconnect = true;
       }
       if (activeServices) {
-        activeServices.evade.cancelEvade(false);
+        activeServices.combat.cancelCombat(false);
         activeServices.farm.stopAutoFarm();
         activeServices.farm.interruptCurrentCycle();
         activeServices.afk.stopAfk();

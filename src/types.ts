@@ -29,6 +29,7 @@ export interface AppConfig {
   depositSearchRadius: number;
   inventoryDepositThreshold: number;
   inventoryDepositIntervalMs: number;
+  gearChestPosition: Position3;
   reserve: Record<string, number>;
   afkPosition: Position3 | null;
   spawnBedPosition: Position3 | null;
@@ -42,7 +43,7 @@ export interface AppConfig {
 }
 
 export interface AppState {
-  mode: "patrolling" | "follow" | "afk" | "farming" | "sleeping" | "evading";
+  mode: "patrolling" | "follow" | "afk" | "farming" | "sleeping" | "combat";
   followTarget: string | null;
   afkPosition: Position3 | null;
   spawnBedPosition: Position3 | null;
@@ -102,10 +103,16 @@ export interface SleepService {
   maybeAutoSleep: () => Promise<void>;
 }
 
-export interface EvadeService {
-  startEvadeFromAttacker: (attacker: any, reason?: string) => boolean;
-  cancelEvade: (resumePrevious?: boolean) => boolean;
-  isEvading: () => boolean;
+export interface GearService {
+  ensureCombatGear: (trigger?: string) => Promise<boolean>;
+  equipBestWeapon: () => Promise<boolean>;
+  hasUsableWeapon: () => boolean;
+}
+
+export interface CombatService {
+  startRetaliationFromAttacker: (attacker: any, reason?: string) => boolean;
+  cancelCombat: (resumePrevious?: boolean) => boolean;
+  isInCombat: () => boolean;
 }
 
 export interface PatrolService {
@@ -126,7 +133,8 @@ export interface Services {
   afk: AfkService;
   farm: FarmService;
   sleep: SleepService;
-  evade: EvadeService;
+  gear: GearService;
+  combat: CombatService;
   patrol: PatrolService;
   discord: DiscordService;
 }

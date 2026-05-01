@@ -76,7 +76,7 @@ export function createSleepService(
     if (triggeredBy === "auto" && !autoSleepEnabled) return false;
     if (triggeredBy === "auto" && !isNight(bot)) return false;
     if (triggeredBy === "auto" && state.mode === "afk") return false;
-    if (triggeredBy === "auto" && state.mode === "evading") return false;
+    if (triggeredBy === "auto" && state.mode === "combat") return false;
 
     const spawnBed = state.spawnBedPosition;
     if (!spawnBed) {
@@ -171,7 +171,7 @@ export function createSleepService(
       sleepInProgress ||
       bot.isSleeping ||
       state.mode === "afk" ||
-      state.mode === "evading" ||
+      state.mode === "combat" ||
       !isNight(bot)
     )
       return;

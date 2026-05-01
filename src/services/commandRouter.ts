@@ -40,7 +40,7 @@ export function createCommandRouter(
     if (!command) return;
 
     try {
-      services.evade.cancelEvade(false);
+      services.combat.cancelCombat(false);
       services.patrol.stopPatrol();
       // if bot is AFK and someone issues another command, abandon AFK first
       if (
@@ -83,7 +83,7 @@ export function createCommandRouter(
   }
 
   function stateAllowsPatrol(servicesRef: Services): boolean {
-    return !servicesRef.farm.isAutoFarmEnabled() && !servicesRef.evade.isEvading();
+    return !servicesRef.farm.isAutoFarmEnabled() && !servicesRef.combat.isInCombat();
   }
 
   return { handleChat };

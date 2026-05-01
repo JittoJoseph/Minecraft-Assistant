@@ -7,6 +7,7 @@ dotenv.config();
 
 const parsedAddress = parseServerAddress(process.env.MINECRAFT_SERVER);
 const DEFAULT_DEPOSIT_POINT = Object.freeze({ x: -106, y: 52, z: 124 });
+const DEFAULT_GEAR_CHEST_POINT = Object.freeze({ x: -91, y: 64, z: 134 });
 
 function parseCoordinate(name: string): number | null {
   const raw = process.env[name];
@@ -54,6 +55,14 @@ const depositPoint = parsedDepositPoint
       z: Math.floor(parsedDepositPoint.z),
     }
   : DEFAULT_DEPOSIT_POINT;
+const parsedGearChestPoint = parseCoordinateTriplet(process.env.GEAR_CHEST_POSITION);
+const gearChestPosition = parsedGearChestPoint
+  ? {
+      x: Math.floor(parsedGearChestPoint.x),
+      y: Math.floor(parsedGearChestPoint.y),
+      z: Math.floor(parsedGearChestPoint.z),
+    }
+  : DEFAULT_GEAR_CHEST_POINT;
 
 const config: AppConfig = {
   appName: process.env.APP_NAME || "Minecraft Assistant",
@@ -77,6 +86,7 @@ const config: AppConfig = {
   autoFarmIntervalMs: 1500,
   movementTimeoutMs: 20 * 1000,
   depositPoint,
+  gearChestPosition,
   depositSearchRadius: 48,
   inventoryDepositThreshold: 18,
   inventoryDepositIntervalMs: 2 * 60 * 1000,
