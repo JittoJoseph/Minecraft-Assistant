@@ -331,17 +331,27 @@ async function runContainerDepositPass(
   plans: DepositPlan[],
   containerKeys: string[],
   kind: StorageContainerKind,
-): Promise<{ depositedAny: boolean; openedAnyContainer: boolean }> {
+): Promise<{
+  depositedAny: boolean;
+  openedAnyContainer: boolean;
+  successfulContainerIndexes: number[];
+}> {
   if (!plans.length || !containerKeys.length) {
-    return { depositedAny: false, openedAnyContainer: false };
+    return {
+      depositedAny: false,
+      openedAnyContainer: false,
+      successfulContainerIndexes: [],
+    };
   }
 
   const visitedContainers = new Set<string>();
   let depositedAny = false;
   let openedAnyContainer = false;
+  const successfulContainerIndexes: number[] = [];
   const moveTimeout = Math.min(config.movementTimeoutMs, STORAGE_MOVE_TIMEOUT_CAP_MS);
 
-  for (const containerKey of containerKeys) {
+  for (let index = 0; index < containerKeys.length; index += 1) {
+    const containerKey = containerKeys[index];
     if (plans.every((plan) => plan.remaining <= 0)) break;
     if (visitedContainers.has(containerKey)) continue;
     visitedContainers.add(containerKey);
@@ -353,7 +363,7 @@ async function runContainerDepositPass(
       await movement.goNear(block.position, STORAGE_REACH_RANGE, moveTimeout);
     } catch (error) {
       if (isInterruptedMovementError(error)) continue;
-      logger.warn(
+      logger.debug(
         `Could not reach storage ${kind} for deposit.`,
         error instanceof Error ? error.message : String(error),
       );
@@ -365,7 +375,7 @@ async function runContainerDepositPass(
       container = await openContainerForDeposit(bot, block, kind);
       openedAnyContainer = true;
     } catch (error) {
-      logger.warn(
+      logger.debug(
         `Could not open storage ${kind} for deposit.`,
         error instanceof Error ? error.message : String(error),
       );
@@ -374,13 +384,16 @@ async function runContainerDepositPass(
 
     try {
       const containerDeposited = await depositIntoContainer(container, plans);
-      if (containerDeposited) depositedAny = true;
+      if (containerDeposited) {
+        depositedAny = true;
+        successfulContainerIndexes.push(index + 1);
+      }
     } finally {
       container.close();
     }
   }
 
-  return { depositedAny, openedAnyContainer };
+  return { depositedAny, openedAnyContainer, successfulContainerIndexes };
 }
 
 export interface DepositResult {
@@ -437,6 +450,7 @@ export async function depositToChest(
 
   let depositedAny = false;
   let openedAnyContainer = false;
+  const successfulChestIndexes = new Set<number>();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     if (generalPlans.length > 0 && storage.chestKeys.length > 0) {
       const chestPass = await runContainerDepositPass(
@@ -450,6 +464,9 @@ export async function depositToChest(
       );
       depositedAny = depositedAny || chestPass.depositedAny;
       openedAnyContainer = openedAnyContainer || chestPass.openedAnyContainer;
+      for (const index of chestPass.successfulContainerIndexes) {
+        successfulChestIndexes.add(index);
+      }
     }
 
     if (seedPlans.length > 0 && storage.barrelKeys.length > 0) {
@@ -480,9 +497,17 @@ export async function depositToChest(
       depositedAny = depositedAny || seedFallbackChestPass.depositedAny;
       openedAnyContainer =
         openedAnyContainer || seedFallbackChestPass.openedAnyContainer;
+      for (const index of seedFallbackChestPass.successfulContainerIndexes) {
+        successfulChestIndexes.add(index);
+      }
     }
 
     if (plans.every((plan) => plan.remaining <= 0)) {
+      if (successfulChestIndexes.size > 0) {
+        logger.info("Deposit completed into storage chests.", {
+          chestOrder: Array.from(successfulChestIndexes).sort((a, b) => a - b),
+        });
+      }
       return { deposited: true };
     }
 
@@ -500,6 +525,13 @@ export async function depositToChest(
     );
   } catch {
     // best-effort fallback position
+  }
+
+  if (successfulChestIndexes.size > 0) {
+    logger.info("Deposit attempted across storage chests.", {
+      chestOrder: Array.from(successfulChestIndexes).sort((a, b) => a - b),
+      remainingPlans: plans.filter((plan) => plan.remaining > 0).length,
+    });
   }
 
   logger.warn("Storage hall full or unavailable; deposit incomplete.");
