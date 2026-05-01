@@ -43,6 +43,23 @@ function isChestBlock(block: any): boolean {
   return block?.name === "chest" || block?.name === "trapped_chest";
 }
 
+function resolveGearChestBlock(bot: Bot, target: Vec3): any | null {
+  const exactBlock = bot.blockAt(target);
+  if (isChestBlock(exactBlock)) return exactBlock;
+
+  for (let dx = -1; dx <= 1; dx += 1) {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dz = -1; dz <= 1; dz += 1) {
+        if (dx === 0 && dy === 0 && dz === 0) continue;
+        const nearby = bot.blockAt(target.offset(dx, dy, dz));
+        if (isChestBlock(nearby)) return nearby;
+      }
+    }
+  }
+
+  return null;
+}
+
 function weaponScore(itemName: string): number {
   const rank = WEAPON_PRIORITY.indexOf(itemName as (typeof WEAPON_PRIORITY)[number]);
   return rank < 0 ? -1 : WEAPON_PRIORITY.length - rank;
@@ -124,8 +141,8 @@ export function createGearService(
       config.gearChestPosition.z,
     );
     await movement.goNear(chestPos, 2, config.movementTimeoutMs * 2);
-    const chestBlock = bot.blockAt(chestPos);
-    if (!isChestBlock(chestBlock)) {
+    const chestBlock = resolveGearChestBlock(bot, chestPos);
+    if (!chestBlock) {
       throw new Error("gear_chest_missing");
     }
 
