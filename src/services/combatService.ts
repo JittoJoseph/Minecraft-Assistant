@@ -51,7 +51,6 @@ const HOSTILE_MOBS = new Set([
 ]);
 
 const ATTACK_RANGE = 3;
-const PURSUIT_RADIUS = 18;
 const COMBAT_MAX_MS = 45 * 1000;
 
 function isInterruptedMovementError(error: unknown): boolean {
@@ -75,6 +74,13 @@ function currentBlockPosition(bot: Bot): Position3 {
     y: Math.floor(bot.entity.position.y),
     z: Math.floor(bot.entity.position.z),
   };
+}
+
+function isAliveTarget(entity: any): boolean {
+  if (!entity || !entity.position) return false;
+  if (entity.isValid === false) return false;
+  if (typeof entity.health === "number" && entity.health <= 0) return false;
+  return true;
 }
 
 export function createCombatService(
@@ -158,17 +164,28 @@ export function createCombatService(
     }
 
     if (resumePrevious && snapshot) {
-      activity
-        .resumeActivity(snapshot, {
-          farmTrigger: "combat_resume",
-          followResumeFailureMessage: "Could not resume follow after combat.",
-        })
-        .catch((error: unknown) => {
-          logger.error(
-            "Failed to resume activity after combat.",
-            error instanceof Error ? error.message : String(error),
-          );
-        });
+      if (snapshot.autoFarmWasEnabled) {
+        const resumed = farm.startAutoFarm();
+        if (!resumed && !farm.isAutoFarmEnabled()) {
+          setTimeout(() => {
+            if (state.mode !== "combat" && !farm.isAutoFarmEnabled()) {
+              farm.startAutoFarm();
+            }
+          }, 200);
+        }
+      } else {
+        activity
+          .resumeActivity(snapshot, {
+            farmTrigger: "combat_resume",
+            followResumeFailureMessage: "Could not resume follow after combat.",
+          })
+          .catch((error: unknown) => {
+            logger.error(
+              "Failed to resume activity after combat.",
+              error instanceof Error ? error.message : String(error),
+            );
+          });
+      }
     }
     gear.stowWeaponFromHand().catch(() => undefined);
     return true;
@@ -181,7 +198,15 @@ export function createCombatService(
       Date.now() < combatEndsAt
     ) {
       const target = resolveTarget();
-      if (!target || !target.position || !isHostileMob(target)) {
+      if (!target || !isAliveTarget(target) || !isHostileMob(target)) {
+        const nearbyHostile = findNearestHostile(8);
+        if (nearbyHostile) {
+          combatTargetId =
+            typeof nearbyHostile.id === "number" ? Math.floor(nearbyHostile.id) : null;
+          targetLostStreak = 0;
+          await bot.waitForTicks(2);
+          continue;
+        }
         targetLostStreak += 1;
         if (targetLostStreak >= 3) {
           cancelCombat(true);
@@ -191,19 +216,6 @@ export function createCombatService(
         continue;
       }
       targetLostStreak = 0;
-
-      if (
-        combatOrigin &&
-        distance(combatOrigin, {
-          x: target.position.x,
-          y: target.position.y,
-          z: target.position.z,
-        }) > PURSUIT_RADIUS
-      ) {
-        logger.warn("Ending combat: target moved outside pursuit radius.");
-        cancelCombat(true);
-        return;
-      }
 
       await gear.equipBestWeapon().catch(() => undefined);
       const targetDistance = bot.entity.position.distanceTo(target.position);
