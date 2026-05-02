@@ -10,14 +10,61 @@ const STORAGE_MOVE_TIMEOUT_CAP_MS = 7 * 1000;
 const STORAGE_OPEN_TIMEOUT_MS = 3500;
 const WHEAT_SEEDS_ITEM_NAME = "wheat_seeds";
 const RESERVED_SEED_ITEMS = new Set(Object.values(CROP_REPLANT_ITEM));
-const COMBAT_GEAR_SUFFIXES = [
-  "_sword",
-  "_axe",
-  "_helmet",
-  "_chestplate",
-  "_leggings",
-  "_boots",
-];
+const WEAPON_PRIORITY = [
+  "netherite_sword",
+  "diamond_sword",
+  "iron_sword",
+  "stone_sword",
+  "golden_sword",
+  "wooden_sword",
+  "netherite_axe",
+  "diamond_axe",
+  "iron_axe",
+  "stone_axe",
+  "golden_axe",
+  "wooden_axe",
+] as const;
+const ARMOR_PRIORITY = {
+  head: [
+    "netherite_helmet",
+    "diamond_helmet",
+    "iron_helmet",
+    "chainmail_helmet",
+    "golden_helmet",
+    "leather_helmet",
+  ],
+  torso: [
+    "netherite_chestplate",
+    "diamond_chestplate",
+    "iron_chestplate",
+    "chainmail_chestplate",
+    "golden_chestplate",
+    "leather_chestplate",
+  ],
+  legs: [
+    "netherite_leggings",
+    "diamond_leggings",
+    "iron_leggings",
+    "chainmail_leggings",
+    "golden_leggings",
+    "leather_leggings",
+  ],
+  feet: [
+    "netherite_boots",
+    "diamond_boots",
+    "iron_boots",
+    "chainmail_boots",
+    "golden_boots",
+    "leather_boots",
+  ],
+} as const;
+const EQUIPMENT_SLOT_INDEX = {
+  head: 5,
+  torso: 6,
+  legs: 7,
+  feet: 8,
+  offhand: 45,
+} as const;
 
 type StorageContainerKind = "chest" | "barrel";
 
@@ -60,14 +107,80 @@ function shouldDepositItem(itemName: string): boolean {
   return DEPOSITABLE_CROP_ITEMS.has(itemName);
 }
 
-function isCombatGearItem(itemName: string): boolean {
-  if (itemName === "shield") return true;
-  return COMBAT_GEAR_SUFFIXES.some((suffix) => itemName.endsWith(suffix));
+function buildCountByItem(items: Array<{ name: string; count: number }>): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    counts.set(item.name, (counts.get(item.name) || 0) + item.count);
+  }
+  return counts;
 }
 
-function keepCountForItem(config: AppConfig, itemName: string): number {
-  if (!RESERVED_SEED_ITEMS.has(itemName)) return 0;
-  return config.reserve[itemName] || 0;
+function countEquippedByName(bot: Bot): Map<string, number> {
+  const equippedSlots = [
+    EQUIPMENT_SLOT_INDEX.head,
+    EQUIPMENT_SLOT_INDEX.torso,
+    EQUIPMENT_SLOT_INDEX.legs,
+    EQUIPMENT_SLOT_INDEX.feet,
+    EQUIPMENT_SLOT_INDEX.offhand,
+  ];
+  const equippedItems = equippedSlots
+    .map((slot) => bot.inventory.slots[slot])
+    .filter((item) => typeof item?.name === "string")
+    .map((item) => ({ name: item.name as string, count: 1 }));
+  return buildCountByItem(equippedItems);
+}
+
+function pickBestAvailableName(
+  allCounts: Map<string, number>,
+  priorities: readonly string[],
+): string | null {
+  for (const name of priorities) {
+    if ((allCounts.get(name) || 0) > 0) return name;
+  }
+  return null;
+}
+
+function buildGearReserveByName(bot: Bot): Map<string, number> {
+  const inventoryCounts = buildCountByItem(
+    bot.inventory.items().map((item) => ({ name: item.name, count: item.count })),
+  );
+  const equippedCounts = countEquippedByName(bot);
+  const allCounts = new Map<string, number>(inventoryCounts);
+  for (const [name, count] of equippedCounts.entries()) {
+    allCounts.set(name, (allCounts.get(name) || 0) + count);
+  }
+
+  const desiredTotals = new Map<string, number>();
+  const bestWeapon = pickBestAvailableName(allCounts, WEAPON_PRIORITY);
+  if (bestWeapon) desiredTotals.set(bestWeapon, 1);
+
+  for (const priorities of Object.values(ARMOR_PRIORITY)) {
+    const best = pickBestAvailableName(allCounts, priorities);
+    if (!best) continue;
+    desiredTotals.set(best, (desiredTotals.get(best) || 0) + 1);
+  }
+
+  if ((allCounts.get("shield") || 0) > 0) {
+    desiredTotals.set("shield", (desiredTotals.get("shield") || 0) + 1);
+  }
+
+  const keepInInventory = new Map<string, number>();
+  for (const [name, desiredTotal] of desiredTotals.entries()) {
+    const alreadyEquipped = equippedCounts.get(name) || 0;
+    keepInInventory.set(name, Math.max(0, desiredTotal - alreadyEquipped));
+  }
+
+  return keepInInventory;
+}
+
+function keepCountForItem(
+  config: AppConfig,
+  itemName: string,
+  gearReserveByName: Map<string, number>,
+): number {
+  const seedKeep = RESERVED_SEED_ITEMS.has(itemName) ? config.reserve[itemName] || 0 : 0;
+  const gearKeep = gearReserveByName.get(itemName) || 0;
+  return seedKeep + gearKeep;
 }
 
 function isChestBlock(block: any): boolean {
@@ -235,10 +348,12 @@ function buildDepositPlan(
   keepReserve: boolean,
   includeAllItems: boolean,
 ): DepositPlan[] {
+  const gearReserveByName = keepReserve
+    ? buildGearReserveByName(bot)
+    : new Map<string, number>();
   const perItemTotals = new Map<string, DepositPlan>();
   for (const item of bot.inventory.items()) {
     if (!includeAllItems && !shouldDepositItem(item.name)) continue;
-    if (isCombatGearItem(item.name)) continue;
 
     const existing = perItemTotals.get(item.name);
     if (existing) {
@@ -256,7 +371,9 @@ function buildDepositPlan(
 
   const plans: DepositPlan[] = [];
   for (const plan of perItemTotals.values()) {
-    const keep = keepReserve ? keepCountForItem(config, plan.itemName) : 0;
+    const keep = keepReserve
+      ? keepCountForItem(config, plan.itemName, gearReserveByName)
+      : 0;
     const amountToDeposit = Math.max(0, plan.remaining - keep);
     if (amountToDeposit <= 0) continue;
     plans.push({
@@ -266,6 +383,24 @@ function buildDepositPlan(
   }
 
   return plans.sort((a, b) => b.remaining - a.remaining);
+}
+
+export function depositLoadStackUnits(
+  bot: Bot,
+  config: AppConfig,
+  options: DepositOptions = {},
+): number {
+  const plans = buildDepositPlan(
+    bot,
+    config,
+    options.keepReserve !== false,
+    options.includeAllItems === true,
+  );
+  let total = 0;
+  for (const plan of plans) {
+    total += plan.remaining / 64;
+  }
+  return total;
 }
 
 function canContainerAcceptItem(container: any, plan: DepositPlan): boolean {

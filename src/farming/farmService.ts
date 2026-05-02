@@ -7,13 +7,12 @@ import type {
   GearService,
   Logger,
   MovementService,
-  Position3,
 } from "../types";
 import { toPositionKey } from "../utils/position";
 import { DEPOSITABLE_CROP_ITEMS } from "./constants";
 import { replantCrop } from "./replant";
 import { isMatureCrop, scanMatureCrops, type HarvestJob } from "./scanner";
-import { depositToChest, usedInventorySlots } from "./storage";
+import { depositLoadStackUnits, depositToChest, usedInventorySlots } from "./storage";
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,6 +65,7 @@ export function createFarmService(
   logger: Logger,
   state: AppState,
   gear: GearService,
+  requestFlowRestart?: (reason: string) => void,
 ): FarmService {
   const pickupSweepEveryHarvests = 8;
   const botFarmLanes = 5;
@@ -75,63 +75,16 @@ export function createFarmService(
   let autoFarmTimer: NodeJS.Timeout | null = null;
   let autoFarmPatrolStep = 0;
   let autoFarmOrigin: { x: number; y: number; z: number } | null = null;
+  let autoFarmCyclesSinceRestart = 0;
+  let autoFarmPatrolStartedAt: number | null = null;
   let interruptRequested = false;
   let unloadInProgress = false;
-  let pendingRespawnRecovery: {
-    resumePosition: Position3;
-    autoFarmWasEnabled: boolean;
-    wasFarming: boolean;
-  } | null = null;
-  let respawnRecoveryInProgress = false;
   let lastDepositAt = Date.now();
   const stats: FarmStats = {
     harvested: 0,
     replanted: 0,
     cycles: 0,
   };
-
-  function currentBlockPosition(): Position3 {
-    return {
-      x: Math.floor(bot.entity.position.x),
-      y: Math.floor(bot.entity.position.y),
-      z: Math.floor(bot.entity.position.z),
-    };
-  }
-
-  async function recoverFromRespawn(): Promise<void> {
-    if (!pendingRespawnRecovery || respawnRecoveryInProgress) return;
-    const recovery = pendingRespawnRecovery;
-    pendingRespawnRecovery = null;
-    respawnRecoveryInProgress = true;
-
-    try {
-      await wait(250);
-      await movement.goNear(
-        recovery.resumePosition,
-        2,
-        config.movementTimeoutMs * 4,
-      );
-    } catch (error) {
-      if (isInterruptedMovementError(error)) {
-        respawnRecoveryInProgress = false;
-        return;
-      }
-      logger.warn(
-        "Could not return to farm after respawn.",
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      respawnRecoveryInProgress = false;
-    }
-
-    if (recovery.autoFarmWasEnabled && !autoFarmEnabled) {
-      startAutoFarm();
-      return;
-    }
-    if (recovery.wasFarming && !recovery.autoFarmWasEnabled) {
-      await runFarmCycle("respawn");
-    }
-  }
 
   async function harvestAndReplant(job: HarvestJob): Promise<boolean> {
     const key = toPositionKey(job.position);
@@ -203,9 +156,20 @@ export function createFarmService(
     const force = options.force === true;
     const keepReserve = options.keepReserve !== false;
     const used = usedInventorySlots(bot);
+    const depositLoad = depositLoadStackUnits(bot, config, {
+      keepReserve,
+      includeAllItems: true,
+    });
+    const loadDepositDue =
+      depositLoad >= config.inventoryDepositStackThreshold;
     const timedDepositDue =
       Date.now() - lastDepositAt >= config.inventoryDepositIntervalMs;
-    if (!force && !timedDepositDue && used < config.inventoryDepositThreshold) {
+    if (
+      !force &&
+      !timedDepositDue &&
+      !loadDepositDue &&
+      used < config.inventoryDepositThreshold
+    ) {
       return false;
     }
 
@@ -221,7 +185,12 @@ export function createFarmService(
     if (
       !result.deposited &&
       result.reason &&
-      (used >= config.inventoryDepositThreshold || timedDepositDue || force)
+      (
+        used >= config.inventoryDepositThreshold ||
+        timedDepositDue ||
+        loadDepositDue ||
+        force
+      )
     ) {
       logger.warn("Scheduled deposit failed.", result.reason);
     }
@@ -347,48 +316,52 @@ export function createFarmService(
     while (autoFarmEnabled) {
       const harvested = await runFarmCycle("autofarm");
       if (!autoFarmEnabled) break;
+
+      autoFarmCyclesSinceRestart += 1;
+      if (
+        config.autoFarmRestartCycleLimit > 0 &&
+        autoFarmCyclesSinceRestart >= config.autoFarmRestartCycleLimit
+      ) {
+        logger.warn("Autofarm maintenance restart requested.", {
+          reason: "farm_cycle_limit",
+          cycleLimit: config.autoFarmRestartCycleLimit,
+        });
+        autoFarmEnabled = false;
+        requestFlowRestart?.("farm_cycle_limit");
+        break;
+      }
+
       if (harvested === 0) {
+        if (autoFarmPatrolStartedAt === null) {
+          autoFarmPatrolStartedAt = Date.now();
+        }
         await moveToNextPatrolPoint();
+        if (
+          config.autoFarmPatrolRestartMs > 0 &&
+          autoFarmPatrolStartedAt !== null &&
+          Date.now() - autoFarmPatrolStartedAt >= config.autoFarmPatrolRestartMs
+        ) {
+          logger.warn("Autofarm patrol timeout restart requested.", {
+            reason: "prolonged_patrol",
+            patrolMs: Date.now() - autoFarmPatrolStartedAt,
+          });
+          autoFarmEnabled = false;
+          requestFlowRestart?.("prolonged_patrol");
+          break;
+        }
+      } else {
+        autoFarmPatrolStartedAt = null;
       }
       await wait(harvested > 0 ? 250 : config.autoFarmIntervalMs);
     }
   }
 
-  bot.on("death", () => {
-    const wasFarming = state.mode === "farming" || state.isFarming;
-    if (!autoFarmEnabled && !wasFarming) return;
-
-    pendingRespawnRecovery = {
-      resumePosition: currentBlockPosition(),
-      autoFarmWasEnabled: autoFarmEnabled,
-      wasFarming,
-    };
-    interruptRequested = true;
-    movement.stop();
-  });
-
-  bot.on("spawn", () => {
-    gear.ensureCombatGear("respawn").catch((error: unknown) => {
-      logger.warn(
-        "Respawn gear check failed.",
-        error instanceof Error ? error.message : String(error),
-      );
-    });
-    if (!pendingRespawnRecovery) return;
-    setTimeout(() => {
-      recoverFromRespawn().catch((error: unknown) => {
-        logger.error(
-          "Respawn farming recovery failed.",
-          error instanceof Error ? error.message : String(error),
-        );
-      });
-    }, 0);
-  });
-
   function startAutoFarm(): boolean {
     if (autoFarmEnabled) return false;
     autoFarmEnabled = true;
     autoFarmPatrolStep = 0;
+    autoFarmCyclesSinceRestart = 0;
+    autoFarmPatrolStartedAt = null;
     autoFarmOrigin = {
       x: Math.floor(bot.entity.position.x),
       y: Math.floor(bot.entity.position.y),

@@ -95,6 +95,72 @@ export function createAssistantBot(): void {
     safeLoadPlugin(bot, toolPlugin, "mineflayer-tool");
     safeLoadPlugin(bot, autoEatModule, "mineflayer-auto-eat");
 
+    let patrolWatchdogTimer: NodeJS.Timeout | null = null;
+    let patrolStartedAt: number | null = null;
+    let flowRestartInProgress = false;
+    let pendingFlowRestartReason: string | null = null;
+
+    function clearPatrolWatchdog(): void {
+      if (!patrolWatchdogTimer) return;
+      clearInterval(patrolWatchdogTimer);
+      patrolWatchdogTimer = null;
+      patrolStartedAt = null;
+    }
+
+    function stopAllActivities(): void {
+      if (!activeServices) return;
+      activeServices.combat.cancelCombat(false);
+      activeServices.farm.stopAutoFarm();
+      activeServices.farm.interruptCurrentCycle();
+      activeServices.afk.stopAfk();
+      activeServices.follow.stopFollow();
+      activeServices.patrol.stopPatrol();
+      activeServices.movement.stop();
+    }
+
+    function performFlowRestart(reason: string): void {
+      if (!activeServices) return;
+      if (flowRestartInProgress) {
+        pendingFlowRestartReason = reason;
+        return;
+      }
+
+      flowRestartInProgress = true;
+      const shouldStartAutoFarm =
+        activeServices.farm.isAutoFarmEnabled() || config.autoFarmOnStart;
+
+      logger.warn("Flow restart requested.", { reason, shouldStartAutoFarm });
+      stopAllActivities();
+      resetTransientState(state);
+      patrolStartedAt = null;
+
+      activeServices.gear.ensureCombatGear(`flow_restart:${reason}`).catch((error: unknown) => {
+        logger.warn(
+          "Flow restart gear check failed.",
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+
+      if (shouldStartAutoFarm) {
+        if (activeServices.farm.startAutoFarm()) {
+          logger.warn("Autofarm resumed after flow restart.", { reason });
+        }
+      } else {
+        activeServices.patrol.startPatrol();
+      }
+
+      flowRestartInProgress = false;
+      if (pendingFlowRestartReason) {
+        const queuedReason = pendingFlowRestartReason;
+        pendingFlowRestartReason = null;
+        setTimeout(() => performFlowRestart(queuedReason), 0);
+      }
+    }
+
+    function requestFlowRestart(reason: string): void {
+      setTimeout(() => performFlowRestart(reason), 0);
+    }
+
     bot.once("spawn", () => {
       reconnectAttempt = 0;
       resetTransientState(state);
@@ -108,7 +174,15 @@ export function createAssistantBot(): void {
       const follow = createFollowService(bot, movement, config, logger, state);
       const afk = createAfkService(bot, movement, config, state);
       const gear = createGearService(bot, config, movement, logger);
-      const farm = createFarmService(bot, movement, config, logger, state, gear);
+      const farm = createFarmService(
+        bot,
+        movement,
+        config,
+        logger,
+        state,
+        gear,
+        requestFlowRestart,
+      );
       const sleep = createSleepService(
         bot,
         config,
@@ -299,6 +373,39 @@ export function createAssistantBot(): void {
       } else {
         services.patrol.startPatrol();
       }
+
+      patrolWatchdogTimer = setInterval(() => {
+        if (!activeServices) return;
+        if (state.mode !== "patrolling") {
+          patrolStartedAt = null;
+          return;
+        }
+        if (patrolStartedAt === null) {
+          patrolStartedAt = Date.now();
+          return;
+        }
+        if (Date.now() - patrolStartedAt >= config.patrolRestartMs) {
+          requestFlowRestart("patrol_timeout");
+        }
+      }, 30 * 1000);
+
+      bot.on("spawn", () => {
+        services.gear.ensureCombatGear("respawn").catch((error: unknown) => {
+          logger.warn(
+            "Respawn gear check failed.",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+        if (!pendingFlowRestartReason) return;
+        const reason = pendingFlowRestartReason;
+        pendingFlowRestartReason = null;
+        setTimeout(() => performFlowRestart(reason), 200);
+      });
+    });
+
+    bot.on("death", () => {
+      pendingFlowRestartReason = "death";
+      stopAllActivities();
     });
 
     bot.on("kicked", (reason) => {
@@ -312,16 +419,11 @@ export function createAssistantBot(): void {
       if (activeServices?.farm.isAutoFarmEnabled()) {
         shouldResumeAutoFarmAfterReconnect = true;
       }
-      if (activeServices) {
-        activeServices.combat.cancelCombat(false);
-        activeServices.farm.stopAutoFarm();
-        activeServices.farm.interruptCurrentCycle();
-        activeServices.afk.stopAfk();
-        activeServices.follow.stopFollow();
-        activeServices.patrol.stopPatrol();
-        activeServices.movement.stop();
-      }
+      stopAllActivities();
       activeServices = null;
+      flowRestartInProgress = false;
+      pendingFlowRestartReason = null;
+      clearPatrolWatchdog();
       logger.warn("Disconnected from server.");
       scheduleReconnect();
     });

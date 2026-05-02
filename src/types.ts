@@ -29,6 +29,10 @@ export interface AppConfig {
   depositSearchRadius: number;
   inventoryDepositThreshold: number;
   inventoryDepositIntervalMs: number;
+  inventoryDepositStackThreshold: number;
+  autoFarmRestartCycleLimit: number;
+  autoFarmPatrolRestartMs: number;
+  patrolRestartMs: number;
   gearChestPosition: Position3;
   reserve: Record<string, number>;
   afkPosition: Position3 | null;
