@@ -3,7 +3,7 @@
 A modular Mineflayer bot for offline-mode servers with:
 
 - `follow me`, `come`, `afk`, `stop`
-- default patrol mode when no other task is active
+- default mode is patrol when no other task is active
 - manual farming (`farm`)
 - continuous farming (`autofarm on` / `autofarm off`)
 - optional automatic night sleeping (`autosleep on` / `autosleep off`)
@@ -52,7 +52,6 @@ Example: `b1 come`, `b2 afk`, `bot help`.
 - `<prefix> come`
 - `<prefix> afk`
 - `<prefix> stop`
-- `<prefix> setspawnpoint`
 - `<prefix> sleep`
 - `<prefix> farm`
 - `<prefix> autofarm on`
